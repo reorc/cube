@@ -1,5 +1,5 @@
 import { UserError } from '../compiler/UserError';
-import type { BaseQuery } from './BaseQuery';
+import { BaseQuery } from './BaseQuery';
 
 export class BaseMeasure {
   public readonly expression: any;
@@ -146,6 +146,17 @@ export class BaseMeasure {
       return this.query.runningTotalDateJoinCondition();
     }
     const { rollingWindow } = definition;
+    if (rollingWindow.type === 'shifted') {
+      if (rollingWindow.mode === 'to_date') {
+        return this.query.rollingWindowToDateJoinConditionWithShift(rollingWindow.granularity, rollingWindow.length);
+      }
+      if (rollingWindow.mode === 'last') {
+        return this.query.rollingWindowLastJoinCondition(rollingWindow.granularity, rollingWindow.length);
+      }
+      return this.query.rollingWindowDateJoinConditionWithShift(
+        rollingWindow.trailing, rollingWindow.leading, rollingWindow.offset, rollingWindow.length
+      );
+    }
     if (rollingWindow.type === 'to_date') {
       return this.query.rollingWindowToDateJoinCondition(rollingWindow.granularity);
     }
@@ -195,7 +206,8 @@ export class BaseMeasure {
   }
 
   public shouldUngroupForCumulative() {
-    return this.measureDefinition().rollingWindow && !this.isAdditive();
+    const definition = this.measureDefinition();
+    return definition.rollingWindow && !this.isAdditive() && !BaseQuery.isCalculatedMeasureType(definition.type);
   }
 
   public sqlDefinition() {
