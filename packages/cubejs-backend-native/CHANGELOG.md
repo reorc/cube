@@ -3,6 +3,32 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.2.26](https://github.com/cube-js/cube/compare/v1.2.25...v1.2.26) (2025-03-21)
+
+**Note:** Version bump only for package @cubejs-backend/native
+
+## [1.2.25](https://github.com/cube-js/cube/compare/v1.2.24...v1.2.25) (2025-03-20)
+
+### Bug Fixes
+
+- **backend-native:** Fix result wrapper parsing ([#9361](https://github.com/cube-js/cube/issues/9361)) ([1b70644](https://github.com/cube-js/cube/commit/1b70644ef81e97864447d57e4b627f7f28d8be34))
+
+## [1.2.24](https://github.com/cube-js/cube/compare/v1.2.23...v1.2.24) (2025-03-18)
+
+### Features
+
+- Implement disable_post_processing in /v1/sql ([#9331](https://github.com/cube-js/cube/issues/9331)) ([c336b10](https://github.com/cube-js/cube/commit/c336b10c6fb90ee2fd3b2852da1671e7a35980bc))
+
+## [1.2.23](https://github.com/cube-js/cube/compare/v1.2.22...v1.2.23) (2025-03-17)
+
+**Note:** Version bump only for package @cubejs-backend/native
+
+## [1.2.22](https://github.com/cube-js/cube/compare/v1.2.21...v1.2.22) (2025-03-14)
+
+### Bug Fixes
+
+- **cubesql:** Functions without arguments alias as plain function name ([#9338](https://github.com/cube-js/cube/issues/9338)) ([de10c23](https://github.com/cube-js/cube/commit/de10c233bf84ef11eb0af272ea296881651dafd1))
+
 ## [1.2.21](https://github.com/cube-js/cube/compare/v1.2.20...v1.2.21) (2025-03-11)
 
 ### Bug Fixes

@@ -3,6 +3,37 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.2.26](https://github.com/cube-js/cube/compare/v1.2.25...v1.2.26) (2025-03-21)
+
+### Bug Fixes
+
+- **schema-compiler:** Fix doubled calls to convertTz() for compound time dimensions with custom granularities ([#9369](https://github.com/cube-js/cube/issues/9369)) ([0dc8320](https://github.com/cube-js/cube/commit/0dc83209ee8d4d38ebaa6be6c48a07e146c4a7b7))
+
+## [1.2.25](https://github.com/cube-js/cube/compare/v1.2.24...v1.2.25) (2025-03-20)
+
+### Bug Fixes
+
+- **schema-compiler:** Handle measures with dimension-only member expressions ([#9335](https://github.com/cube-js/cube/issues/9335)) ([2f7a128](https://github.com/cube-js/cube/commit/2f7a1288108ea3a62b295c08dcf756bfec76d784))
+- **schema-compiler:** support unary operators in DAP filters ([#9366](https://github.com/cube-js/cube/issues/9366)) ([fff8af2](https://github.com/cube-js/cube/commit/fff8af2bfa25098e8ed20b4e4848f3926bba70b8))
+
+### Features
+
+- **server-core,api-gateway:** Allow manual rebuilding pre-aggregation partitions within date Range ([#9342](https://github.com/cube-js/cube/issues/9342)) ([b5701e3](https://github.com/cube-js/cube/commit/b5701e35a92769e23acdbb2fe72549731cd21aba))
+
+## [1.2.24](https://github.com/cube-js/cube/compare/v1.2.23...v1.2.24) (2025-03-18)
+
+**Note:** Version bump only for package @cubejs-backend/schema-compiler
+
+## [1.2.23](https://github.com/cube-js/cube/compare/v1.2.22...v1.2.23) (2025-03-17)
+
+**Note:** Version bump only for package @cubejs-backend/schema-compiler
+
+## [1.2.22](https://github.com/cube-js/cube/compare/v1.2.21...v1.2.22) (2025-03-14)
+
+### Features
+
+- **tesseract:** Segments and MemberExpressions segments support ([#9336](https://github.com/cube-js/cube/issues/9336)) ([b2c03e7](https://github.com/cube-js/cube/commit/b2c03e7644f954ba29201b4c98de35ded7eebe79))
+
 ## [1.2.21](https://github.com/cube-js/cube/compare/v1.2.20...v1.2.21) (2025-03-11)
 
 **Note:** Version bump only for package @cubejs-backend/schema-compiler

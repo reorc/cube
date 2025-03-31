@@ -64,8 +64,8 @@ export class SQLServer {
     await execSql(this.sqlInterfaceInstance!, sqlQuery, stream, securityContext);
   }
 
-  public async sql4sql(sqlQuery: string, securityContext?: any): Promise<Sql4SqlResponse> {
-    return sql4sql(this.sqlInterfaceInstance!, sqlQuery, securityContext);
+  public async sql4sql(sqlQuery: string, disablePostProcessing: boolean, securityContext?: unknown): Promise<Sql4SqlResponse> {
+    return sql4sql(this.sqlInterfaceInstance!, sqlQuery, disablePostProcessing, securityContext);
   }
 
   protected buildCheckSqlAuth(options: SQLServerOptions): CheckSQLAuthFn {
@@ -107,10 +107,9 @@ export class SQLServer {
     this.sqlInterfaceInstance = await registerInterface({
       gatewayPort: this.gatewayPort,
       pgPort: options.pgSqlPort,
-      checkAuth: async ({ request, user, password }) => {
+      checkSqlAuth: async ({ request, user, password }) => {
         const { password: returnedPassword, superuser, securityContext, skipPasswordCheck } = await checkSqlAuth(request, user, password);
 
-        // Strip securityContext to improve speed deserialization
         return {
           password: returnedPassword,
           superuser: superuser || false,

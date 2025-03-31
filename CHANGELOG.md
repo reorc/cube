@@ -3,6 +3,53 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.2.26](https://github.com/cube-js/cube/compare/v1.2.25...v1.2.26) (2025-03-21)
+
+### Bug Fixes
+
+- **databricks-jdbc-driver:** Allow paths in s3/azure export buckets ([#9365](https://github.com/cube-js/cube/issues/9365)) ([f133737](https://github.com/cube-js/cube/commit/f1337379c977f920bc6c1864138b23e10616007d))
+- **redshift-driver:** Use Redshift-specific schema query ([#9363](https://github.com/cube-js/cube/issues/9363)) ([beaf8eb](https://github.com/cube-js/cube/commit/beaf8eba22ac1657dc682ff04f7c670a8824d0ea)), closes [#3876](https://github.com/cube-js/cube/issues/3876)
+- **schema-compiler:** Fix doubled calls to convertTz() for compound time dimensions with custom granularities ([#9369](https://github.com/cube-js/cube/issues/9369)) ([0dc8320](https://github.com/cube-js/cube/commit/0dc83209ee8d4d38ebaa6be6c48a07e146c4a7b7))
+
+## [1.2.25](https://github.com/cube-js/cube/compare/v1.2.24...v1.2.25) (2025-03-20)
+
+### Bug Fixes
+
+- **backend-native:** Fix result wrapper parsing ([#9361](https://github.com/cube-js/cube/issues/9361)) ([1b70644](https://github.com/cube-js/cube/commit/1b70644ef81e97864447d57e4b627f7f28d8be34))
+- **schema-compiler:** Handle measures with dimension-only member expressions ([#9335](https://github.com/cube-js/cube/issues/9335)) ([2f7a128](https://github.com/cube-js/cube/commit/2f7a1288108ea3a62b295c08dcf756bfec76d784))
+- **schema-compiler:** support unary operators in DAP filters ([#9366](https://github.com/cube-js/cube/issues/9366)) ([fff8af2](https://github.com/cube-js/cube/commit/fff8af2bfa25098e8ed20b4e4848f3926bba70b8))
+
+### Features
+
+- **duckdb-driver:** Fix numeric filter comparisons in DuckDB ([#9328](https://github.com/cube-js/cube/issues/9328)) ([969508d](https://github.com/cube-js/cube/commit/969508dd33984d0928f514ff07edbc50a0c949e3)), closes [#9281](https://github.com/cube-js/cube/issues/9281) [#9281](https://github.com/cube-js/cube/issues/9281)
+- **server-core,api-gateway:** Allow manual rebuilding pre-aggregation partitions within date Range ([#9342](https://github.com/cube-js/cube/issues/9342)) ([b5701e3](https://github.com/cube-js/cube/commit/b5701e35a92769e23acdbb2fe72549731cd21aba))
+
+## [1.2.24](https://github.com/cube-js/cube/compare/v1.2.23...v1.2.24) (2025-03-18)
+
+### Bug Fixes
+
+- **cubesql:** Disable projection_push_down DF optimizer ([#9356](https://github.com/cube-js/cube/issues/9356)) ([a15442c](https://github.com/cube-js/cube/commit/a15442ca30071bcefe44bf49ddfe1d7f7fb870bd))
+
+### Features
+
+- Implement disable_post_processing in /v1/sql ([#9331](https://github.com/cube-js/cube/issues/9331)) ([c336b10](https://github.com/cube-js/cube/commit/c336b10c6fb90ee2fd3b2852da1671e7a35980bc))
+
+## [1.2.23](https://github.com/cube-js/cube/compare/v1.2.22...v1.2.23) (2025-03-17)
+
+### Features
+
+- **docker:** Security upgrade node from 20.17.0 to 20.19.0 ([#9350](https://github.com/cube-js/cube/issues/9350)) ([6cacff9](https://github.com/cube-js/cube/commit/6cacff9129afa423b87fac783723a886c69878cd))
+
+## [1.2.22](https://github.com/cube-js/cube/compare/v1.2.21...v1.2.22) (2025-03-14)
+
+### Bug Fixes
+
+- **cubesql:** Functions without arguments alias as plain function name ([#9338](https://github.com/cube-js/cube/issues/9338)) ([de10c23](https://github.com/cube-js/cube/commit/de10c233bf84ef11eb0af272ea296881651dafd1))
+
+### Features
+
+- **tesseract:** Segments and MemberExpressions segments support ([#9336](https://github.com/cube-js/cube/issues/9336)) ([b2c03e7](https://github.com/cube-js/cube/commit/b2c03e7644f954ba29201b4c98de35ded7eebe79))
+
 ## [1.2.21](https://github.com/cube-js/cube/compare/v1.2.20...v1.2.21) (2025-03-11)
 
 ### Bug Fixes

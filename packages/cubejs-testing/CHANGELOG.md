@@ -3,6 +3,35 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.2.26](https://github.com/cube-js/cube/compare/v1.2.25...v1.2.26) (2025-03-21)
+
+**Note:** Version bump only for package @cubejs-backend/testing
+
+## [1.2.25](https://github.com/cube-js/cube/compare/v1.2.24...v1.2.25) (2025-03-20)
+
+### Bug Fixes
+
+- **backend-native:** Fix result wrapper parsing ([#9361](https://github.com/cube-js/cube/issues/9361)) ([1b70644](https://github.com/cube-js/cube/commit/1b70644ef81e97864447d57e4b627f7f28d8be34))
+- **schema-compiler:** support unary operators in DAP filters ([#9366](https://github.com/cube-js/cube/issues/9366)) ([fff8af2](https://github.com/cube-js/cube/commit/fff8af2bfa25098e8ed20b4e4848f3926bba70b8))
+
+### Features
+
+- **duckdb-driver:** Fix numeric filter comparisons in DuckDB ([#9328](https://github.com/cube-js/cube/issues/9328)) ([969508d](https://github.com/cube-js/cube/commit/969508dd33984d0928f514ff07edbc50a0c949e3)), closes [#9281](https://github.com/cube-js/cube/issues/9281) [#9281](https://github.com/cube-js/cube/issues/9281)
+
+## [1.2.24](/compare/v1.2.23...v1.2.24) (2025-03-18)
+
+### Features
+
+- Implement disable_post_processing in /v1/sql (#9331) c336b10, closes #9331
+
+## [1.2.23](https://github.com/cube-js/cube/compare/v1.2.22...v1.2.23) (2025-03-17)
+
+**Note:** Version bump only for package @cubejs-backend/testing
+
+## [1.2.22](https://github.com/cube-js/cube/compare/v1.2.21...v1.2.22) (2025-03-14)
+
+**Note:** Version bump only for package @cubejs-backend/testing
+
 ## [1.2.21](https://github.com/cube-js/cube/compare/v1.2.20...v1.2.21) (2025-03-11)
 
 **Note:** Version bump only for package @cubejs-backend/testing
