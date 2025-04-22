@@ -836,6 +836,67 @@ export class BaseQuery {
     );
   }
 
+  rollingWindowToDateJoinConditionWithShift(granularity, shift) {
+    return this.timeDimensions.map(
+      d => [
+        d,
+        (dateFrom, dateTo, dateField, dimensionDateFrom, dimensionDateTo, isFromStartToEnd) => {
+          const shiftedDateFrom = shift ? this.addInterval(dateFrom, shift) : dateFrom;
+          const shiftedDateTo = shift ? this.addInterval(dateTo, shift) : dateTo;
+          return `${dateField} >= ${this.timeGroupedColumn(granularity, shiftedDateFrom)} AND ${dateField} <= ${shiftedDateTo}`;
+        }
+      ]
+    );
+  }
+
+  rollingWindowDateJoinConditionWithShift(trailingInterval, leadingInterval, offset, shift) {
+    offset = offset || 'none';
+    return this.timeDimensions.map(
+      d => [d, (dateFrom, dateTo, dateField, dimensionDateFrom, dimensionDateTo, isFromStartToEnd) => {
+        // Apply shift to both dateFrom and dateTo if shift is provided
+        const shiftedDateFrom = shift ? this.addInterval(dateFrom, shift) : dateFrom;
+        const shiftedDateTo = shift ? this.addInterval(dateTo, shift) : dateTo;
+        
+        const conditions = [];
+        if (trailingInterval !== 'unbounded') {
+          const startDate = offset === 'none' ? shiftedDateFrom : (isFromStartToEnd || offset === 'start' ? shiftedDateFrom : shiftedDateTo);
+          const trailingStart = trailingInterval ? this.subtractInterval(startDate, trailingInterval) : startDate;
+          const sign = offset === 'none' ? '>=' : (offset === 'start' ? '>=' : '>');
+          conditions.push(`${dateField} ${sign} ${trailingStart}`);
+        }
+        if (leadingInterval !== 'unbounded') {
+          const endDate = offset === 'none' ? shiftedDateTo : (isFromStartToEnd || offset === 'end' ? shiftedDateTo : shiftedDateFrom);
+          const leadingEnd = leadingInterval ? this.addInterval(endDate, leadingInterval) : endDate;
+          const sign = offset === 'none' ? '<=' : (offset === 'end' ? '<=' : '<');
+          conditions.push(`${dateField} ${sign} ${leadingEnd}`);
+        }
+        return conditions.length ? conditions.join(' AND ') : '1 = 1';
+      }]
+    );
+  }
+
+  rollingWindowLastJoinCondition(granularity, length) {
+    return this.timeDimensions.map(
+      d => [d, (dateFrom, dateTo, dateField, dimensionDateFrom, dimensionDateTo, isFromStartToEnd) => {
+        // For "last" mode, we want to shift back by the length and use the entire period
+        const shiftedDateFrom = this.addInterval(dateFrom, length);
+        const shiftedDateTo = this.addInterval(dateTo, length);
+        
+        // Get the start of the period based on granularity
+        const periodStart = this.timeGroupedColumn(granularity, shiftedDateFrom);
+        // Get the end of the period (last moment)
+        const periodEnd = this.subtractInterval(
+          this.addInterval(
+            this.timeGroupedColumn(granularity, shiftedDateTo), 
+            granularity == 'quarter' ? `3 month` : `1 ${granularity}`
+          ), `1 second`
+        );
+        
+        return `${dateField} >= ${periodStart} AND ${dateField} <= ${periodEnd}`;
+      }]
+    );
+  }
+
   /**
    * @param {string} date
    * @param {string} interval
@@ -1600,11 +1661,28 @@ export class BaseQuery {
     );
   }
 
+  /**
+   * Generates a SELECT query for over time series analysis, handling one measure at a time.
+   * The query performs a LEFT JOIN between a date series and the base query.
+   * 
+   * @param {Array} cumulativeMeasures - Array containing a single measure to analyze over time
+   * @param {string} dateSeriesSql - SQL for generating the date series
+   * @param {string} baseQuery - The base query to join with
+   * @param {string} dateJoinConditionSql - The JOIN condition between date series and base query
+   * @param {string} baseQueryAlias - Alias for the base query
+   * @param {string} dateSeriesGranularity - Granularity for the date series
+   * @returns {string} The complete SELECT query
+   * 
+   * @note If the measure is of type 'calculated', the GROUP BY clause will be omitted
+   * since calculated measures must already be grouped in the base query. For non-calculated measures, 
+   * the appropriate GROUP BY clause will be included.
+   */
   overTimeSeriesSelect(cumulativeMeasures, dateSeriesSql, baseQuery, dateJoinConditionSql, baseQueryAlias, dateSeriesGranularity) {
     const forSelect = this.overTimeSeriesForSelect(cumulativeMeasures, dateSeriesGranularity);
+    const groupable = !cumulativeMeasures.some(m => BaseQuery.isCalculatedMeasureType(m.measureDefinition().type));
     return `SELECT ${forSelect} FROM ${dateSeriesSql}` +
       ` LEFT JOIN (${baseQuery}) ${this.asSyntaxJoin} ${baseQueryAlias} ON ${dateJoinConditionSql}` +
-      this.groupByClause();
+      (groupable ? this.groupByClause() : '');
   }
 
   overTimeSeriesForSelect(cumulativeMeasures, dateSeriesGranularity) {
