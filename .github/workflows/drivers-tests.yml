@@ -91,7 +91,7 @@ jobs:
     name: Build native Linux ${{ matrix.node-version }} ${{ matrix.target }} Python ${{ matrix.python-version }}
     strategy:
       matrix:
-        node-version: [ 20 ]
+        node-version: [ 22 ]
         python-version: [ "fallback" ]
         target: [ "x86_64-unknown-linux-gnu" ]
       fail-fast: false
@@ -210,6 +210,8 @@ jobs:
         databricks-jdbc-export-bucket-s3-prefix
         databricks-jdbc-export-bucket-azure
         databricks-jdbc-export-bucket-azure-prefix
+        databricks-jdbc-export-bucket-gcs
+        databricks-jdbc-export-bucket-gcs-prefix
         redshift
         redshift-export-bucket-s3
         snowflake
@@ -225,8 +227,6 @@ jobs:
       DRIVERS_TESTS_ATHENA_CUBEJS_AWS_KEY: ${{ secrets.DRIVERS_TESTS_ATHENA_CUBEJS_AWS_KEY }}
     strategy:
       matrix:
-        node:
-          - 20.x
         database:
           - athena-export-bucket-s3
           - bigquery-export-bucket-gcs
@@ -237,6 +237,8 @@ jobs:
           - databricks-jdbc-export-bucket-s3-prefix
           - databricks-jdbc-export-bucket-azure
           - databricks-jdbc-export-bucket-azure-prefix
+          - databricks-jdbc-export-bucket-gcs
+          - databricks-jdbc-export-bucket-gcs-prefix
           - mssql
           - mysql
           - postgres
@@ -254,10 +256,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Node.js 20.x
+      - name: Install Node.js 22.x
         uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 22.x
 
       - name: Configure `yarn`
         run: yarn policies set-version v1.22.22

@@ -1,7 +1,7 @@
 use super::{
     MultiStageAppliedState, MultiStageInodeMember, MultiStageInodeMemberType,
     MultiStageLeafMemberType, MultiStageMember, MultiStageMemberQueryPlanner, MultiStageMemberType,
-    MultiStageQueryDescription, MultiStageTimeShift, RollingWindowPlanner,
+    MultiStageQueryDescription, RollingWindowPlanner,
 };
 use crate::plan::{Cte, From, Schema, Select, SelectBuilder};
 use crate::planner::query_tools::QueryTools;
@@ -57,6 +57,7 @@ impl MultiStageQueryPlanner {
             self.query_properties.time_dimensions_filters().clone(),
             self.query_properties.dimensions_filters().clone(),
             self.query_properties.measures_filters().clone(),
+            self.query_properties.segments().clone(),
         );
 
         let top_level_ctes = multi_stage_members
@@ -123,15 +124,8 @@ impl MultiStageQueryPlanner {
                 MultiStageInodeMemberType::Calculate
             };
 
-            let time_shifts = if let Some(refs) = measure.time_shift_references() {
-                let time_shifts = refs
-                    .iter()
-                    .map(|r| MultiStageTimeShift::try_from_reference(r))
-                    .collect::<Result<Vec<_>, _>>()?;
-                time_shifts
-            } else {
-                vec![]
-            };
+            let time_shifts = measure.time_shifts();
+
             let is_ungrupped = match &member_type {
                 MultiStageInodeMemberType::Rank | MultiStageInodeMemberType::Calculate => true,
                 _ => self.query_properties.ungrouped(),

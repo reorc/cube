@@ -1,6 +1,6 @@
 use crate::plan::{FilterGroup, FilterItem};
 use crate::planner::filter::FilterOperator;
-use crate::planner::planners::multi_stage::MultiStageTimeShift;
+use crate::planner::sql_evaluator::MeasureTimeShift;
 use crate::planner::{BaseDimension, BaseMember, BaseTimeDimension};
 use cubenativeutils::CubeError;
 use itertools::Itertools;
@@ -16,7 +16,8 @@ pub struct MultiStageAppliedState {
     time_dimensions_filters: Vec<FilterItem>,
     dimensions_filters: Vec<FilterItem>,
     measures_filters: Vec<FilterItem>,
-    time_shifts: HashMap<String, String>,
+    segments: Vec<FilterItem>,
+    time_shifts: HashMap<String, MeasureTimeShift>,
 }
 
 impl MultiStageAppliedState {
@@ -26,6 +27,7 @@ impl MultiStageAppliedState {
         time_dimensions_filters: Vec<FilterItem>,
         dimensions_filters: Vec<FilterItem>,
         measures_filters: Vec<FilterItem>,
+        segments: Vec<FilterItem>,
     ) -> Rc<Self> {
         Rc::new(Self {
             time_dimensions,
@@ -33,6 +35,7 @@ impl MultiStageAppliedState {
             time_dimensions_filters,
             dimensions_filters,
             measures_filters,
+            segments,
             time_shifts: HashMap::new(),
         })
     }
@@ -44,6 +47,7 @@ impl MultiStageAppliedState {
             time_dimensions_filters: self.time_dimensions_filters.clone(),
             dimensions_filters: self.dimensions_filters.clone(),
             measures_filters: self.measures_filters.clone(),
+            segments: self.segments.clone(),
             time_shifts: self.time_shifts.clone(),
         }
     }
@@ -58,14 +62,17 @@ impl MultiStageAppliedState {
             .collect_vec();
     }
 
-    pub fn add_time_shifts(&mut self, time_shifts: Vec<MultiStageTimeShift>) {
+    pub fn add_time_shifts(&mut self, time_shifts: Vec<MeasureTimeShift>) {
         for ts in time_shifts.into_iter() {
-            self.time_shifts
-                .insert(ts.time_dimension.clone(), ts.interval.clone());
+            if let Some(exists) = self.time_shifts.get_mut(&ts.dimension.full_name()) {
+                exists.interval += ts.interval;
+            } else {
+                self.time_shifts.insert(ts.dimension.full_name(), ts);
+            }
         }
     }
 
-    pub fn time_shifts(&self) -> &HashMap<String, String> {
+    pub fn time_shifts(&self) -> &HashMap<String, MeasureTimeShift> {
         &self.time_shifts
     }
 
@@ -75,6 +82,10 @@ impl MultiStageAppliedState {
 
     pub fn dimensions_filters(&self) -> &Vec<FilterItem> {
         &self.dimensions_filters
+    }
+
+    pub fn segments(&self) -> &Vec<FilterItem> {
+        &self.segments
     }
 
     pub fn measures_filters(&self) -> &Vec<FilterItem> {
