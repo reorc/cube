@@ -1,5 +1,5 @@
 import { UserError } from '../compiler/UserError';
-import { BaseQuery } from './BaseQuery';
+import type { BaseQuery } from './BaseQuery';
 import { MeasureDefinition } from '../compiler/CubeEvaluator';
 
 export class BaseMeasure {
@@ -315,8 +315,7 @@ export class BaseMeasure {
   }
 
   public shouldUngroupForCumulative() {
-    const definition = this.measureDefinition();
-    return definition.rollingWindow && !this.isAdditive() && !BaseQuery.isCalculatedMeasureType(definition.type);
+    return this.measureDefinition().rollingWindow && !this.isAdditive();
   }
 
   public sqlDefinition() {
