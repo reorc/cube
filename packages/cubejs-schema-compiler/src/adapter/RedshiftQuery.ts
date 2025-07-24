@@ -14,33 +14,77 @@ export class RedshiftQuery extends PostgresQuery {
   }
 
   /**
-   * Redshift doesn't support Interval values with month or year parts (as Postgres does)
-   * so we need to make date math on our own.
+   * Override subtractInterval to handle month/year intervals in Redshift.
+   * Redshift doesn't support INTERVAL syntax for month/year units (e.g., 'INTERVAL '1 month'')
+   * Instead, we use DATEADD function which is the Redshift equivalent.
+   * 
+   * Examples:
+   * - "2 months" -> DATEADD(month, -2, date)
+   * - "-2 months" -> DATEADD(month, 2, date)  // subtracting negative = adding
+   * - "1 year" -> DATEADD(year, -1, date)
+   * - "-1 year" -> DATEADD(year, 1, date)
+   * 
+   * For more complex intervals, falls back to parsing with parseSqlInterval
+   * and making date math on our own since Redshift doesn't support Interval values
+   * with month or year parts (as Postgres does).
    */
   public override subtractInterval(date: string, interval: string): string {
-    const intervalParsed = parseSqlInterval(interval);
-    let result = date;
+    // First try simple regex matching for basic month/year intervals
+    const match = interval.match(/^(-?\d+)\s*(month|months|year|years)$/);
+    if (match) {
+      const [, amount, unit] = match;
+      // Convert plural to singular for DATEADD
+      const singularUnit = unit.replace(/s$/, '');
+      // If amount is negative, we're subtracting a negative, so we should add
+      const finalAmount = amount.startsWith('-') ? amount.substring(1) : `-${amount}`;
+      return `DATEADD(${singularUnit}, ${finalAmount}, ${date})`;
+    } else {
+      // Fall back to complex interval parsing
+      const intervalParsed = parseSqlInterval(interval);
+      let result = date;
 
-    for (const [datePart, intervalValue] of Object.entries(intervalParsed)) {
-      result = `DATEADD(${datePart}, -${intervalValue}, ${result})`;
+      for (const [datePart, intervalValue] of Object.entries(intervalParsed)) {
+        result = `DATEADD(${datePart}, -${intervalValue}, ${result})`;
+      }
+
+      return result;
     }
-
-    return result;
   }
 
   /**
-   * Redshift doesn't support Interval values with month or year parts (as Postgres does)
-   * so we need to make date math on our own.
+   * Override addInterval to handle month/year intervals in Redshift.
+   * Similar to subtractInterval, but for adding time periods.
+   * Uses DATEADD function which is Redshift's way of handling date arithmetic.
+   * 
+   * Examples:
+   * - "2 months" -> DATEADD(month, 2, date)
+   * - "-2 months" -> DATEADD(month, -2, date)
+   * - "1 year" -> DATEADD(year, 1, date)
+   * - "-1 year" -> DATEADD(year, -1, date)
+   * 
+   * For more complex intervals, falls back to parsing with parseSqlInterval
+   * and making date math on our own since Redshift doesn't support Interval values
+   * with month or year parts (as Postgres does).
    */
   public override addInterval(date: string, interval: string): string {
-    const intervalParsed = parseSqlInterval(interval);
-    let result = date;
+    // First try simple regex matching for basic month/year intervals
+    const match = interval.match(/^(-?\d+)\s*(month|months|year|years)$/);
+    if (match) {
+      const [, amount, unit] = match;
+      // Convert plural to singular for DATEADD
+      const singularUnit = unit.replace(/s$/, '');
+      return `DATEADD(${singularUnit}, ${amount}, ${date})`;
+    } else {
+      // Fall back to complex interval parsing
+      const intervalParsed = parseSqlInterval(interval);
+      let result = date;
 
-    for (const [datePart, intervalValue] of Object.entries(intervalParsed)) {
-      result = `DATEADD(${datePart}, ${intervalValue}, ${result})`;
+      for (const [datePart, intervalValue] of Object.entries(intervalParsed)) {
+        result = `DATEADD(${datePart}, ${intervalValue}, ${result})`;
+      }
+
+      return result;
     }
-
-    return result;
   }
 
   /**
@@ -91,52 +135,6 @@ export class RedshiftQuery extends PostgresQuery {
     delete templates.window_frame_types.groups;
     templates.types.binary = 'VARBINARY';
     return templates;
-  }
-
-  /**
-   * Override subtractInterval to handle month/year intervals in Redshift.
-   * Redshift doesn't support INTERVAL syntax for month/year units (e.g., 'INTERVAL '1 month'')
-   * Instead, we use DATEADD function which is the Redshift equivalent.
-   * 
-   * Examples:
-   * - "2 months" -> DATEADD(month, -2, date)
-   * - "-2 months" -> DATEADD(month, 2, date)  // subtracting negative = adding
-   * - "1 year" -> DATEADD(year, -1, date)
-   * - "-1 year" -> DATEADD(year, 1, date)
-   */
-  public subtractInterval(date: string, interval: string): string {
-    const match = interval.match(/^(-?\d+)\s*(month|months|year|years)$/);
-    if (match) {
-      const [, amount, unit] = match;
-      // Convert plural to singular for DATEADD
-      const singularUnit = unit.replace(/s$/, '');
-      // If amount is negative, we're subtracting a negative, so we should add
-      const finalAmount = amount.startsWith('-') ? amount.substring(1) : `-${amount}`;
-      return `DATEADD(${singularUnit}, ${finalAmount}, ${date})`;
-    }
-    return super.subtractInterval(date, interval);
-  }
-
-  /**
-   * Override addInterval to handle month/year intervals in Redshift.
-   * Similar to subtractInterval, but for adding time periods.
-   * Uses DATEADD function which is Redshift's way of handling date arithmetic.
-   * 
-   * Examples:
-   * - "2 months" -> DATEADD(month, 2, date)
-   * - "-2 months" -> DATEADD(month, -2, date)
-   * - "1 year" -> DATEADD(year, 1, date)
-   * - "-1 year" -> DATEADD(year, -1, date)
-   */
-  public addInterval(date: string, interval: string): string {
-    const match = interval.match(/^(-?\d+)\s*(month|months|year|years)$/);
-    if (match) {
-      const [, amount, unit] = match;
-      // Convert plural to singular for DATEADD
-      const singularUnit = unit.replace(/s$/, '');
-      return `DATEADD(${singularUnit}, ${amount}, ${date})`;
-    }
-    return super.addInterval(date, interval);
   }
 }
 
