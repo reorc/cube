@@ -75,6 +75,19 @@ impl SelectBuilder {
             .add_column(SchemaColumn::new(alias.clone(), Some(member.full_name())));
     }
 
+    pub fn add_count_all(&mut self, alias: String) {
+        let func = Expr::Function(FunctionExpression {
+            function: "COUNT".to_string(),
+            arguments: vec![Expr::Asterisk],
+        });
+        let aliased_expr = AliasedExpr {
+            expr: func,
+            alias: alias.clone(),
+        };
+        self.projection_columns.push(aliased_expr);
+        self.result_schema
+            .add_column(SchemaColumn::new(alias.clone(), None));
+    }
     pub fn add_projection_function_expression(
         &mut self,
         function: &str,
@@ -96,6 +109,28 @@ impl SelectBuilder {
         self.projection_columns.push(aliased_expr);
         self.result_schema
             .add_column(SchemaColumn::new(alias.clone(), None));
+    }
+    pub fn add_projection_reference_member(
+        &mut self,
+        member: &Rc<dyn BaseMember>,
+        reference: QualifiedColumnName,
+        alias: Option<String>,
+    ) {
+        let alias = if let Some(alias) = alias {
+            alias
+        } else {
+            reference.name().clone()
+        };
+
+        let expr = Expr::Reference(reference);
+        let aliased_expr = AliasedExpr {
+            expr,
+            alias: alias.clone(),
+        };
+
+        self.projection_columns.push(aliased_expr);
+        self.result_schema
+            .add_column(SchemaColumn::new(alias.clone(), Some(member.full_name())));
     }
     pub fn add_projection_coalesce_member(
         &mut self,
@@ -190,11 +225,8 @@ impl SelectBuilder {
         source: &SingleAliasedSource,
         refs: &mut HashMap<String, String>,
     ) {
-        match &source.source {
-            SingleSource::Cube(cube) => {
-                refs.insert(cube.name().clone(), source.alias.clone());
-            }
-            _ => {}
+        if let SingleSource::Cube(cube) = &source.source {
+            refs.insert(cube.name().clone(), source.alias.clone());
         }
     }
 

@@ -1,6 +1,6 @@
 import inlection from 'inflection';
 import moment from 'moment-timezone';
-import { contains, join, map } from 'ramda';
+import { includes, join, map } from 'ramda';
 import { FROM_PARTITION_RANGE, TO_PARTITION_RANGE } from '@cubejs-backend/shared';
 
 import { BaseDimension } from './BaseDimension';
@@ -47,11 +47,10 @@ export class BaseFilter extends BaseDimension {
   }
 
   // Evaluates filters on measures to whole where statement in query
-  // It used in drill downs
+  // It used in drill-downs
   public measureFilterToWhere() {
     const measureDefinition = this.measureDefinition();
-    if (measureDefinition.filters && measureDefinition.filters.length ||
-      measureDefinition.drillFilters && measureDefinition.drillFilters.length) {
+    if (measureDefinition.filters?.length || measureDefinition.drillFilters?.length) {
       return this.query.evaluateFiltersArray(
         (measureDefinition.filters || []).concat(measureDefinition.drillFilters || []),
         this.query.cubeEvaluator.cubeNameFromPath(this.measure)
@@ -90,6 +89,17 @@ export class BaseFilter extends BaseDimension {
     }
   }
 
+  /**
+   * BaseFilter inherits from BaseDimension while Filter may be measure-based !!
+   */
+  public override dateFieldType() {
+    if (this.measure) {
+      return this.measureDefinition().type; // There is no fieldType in measure, but it seems that it's enough
+    } else {
+      return this.dimensionDefinition().fieldType;
+    }
+  }
+
   public cube() {
     return this.query.cubeEvaluator.cubeFromPath(this.measure || this.dimension);
   }
@@ -124,7 +134,7 @@ export class BaseFilter extends BaseDimension {
   }
 
   public isDateOperator(): boolean {
-    return contains(this.camelizeOperator, DATE_OPERATORS);
+    return includes(this.camelizeOperator, DATE_OPERATORS);
   }
 
   public valuesArray() {
@@ -379,7 +389,7 @@ export class BaseFilter extends BaseDimension {
     return this.query.afterOrOnDateFilter(column, after);
   }
 
-  public formatFromDate(date: string) {
+  public formatFromDate(date: string): string {
     if (date) {
       if (this.query.timestampPrecision() === 3) {
         if (date.match(dateTimeLocalMsRegex)) {
@@ -415,7 +425,7 @@ export class BaseFilter extends BaseDimension {
     return this.query.inDbTimeZone(this.formatFromDate(date));
   }
 
-  public formatToDate(date: string) {
+  public formatToDate(date: string): string {
     if (date) {
       if (this.query.timestampPrecision() === 3) {
         if (date.match(dateTimeLocalMsRegex)) {

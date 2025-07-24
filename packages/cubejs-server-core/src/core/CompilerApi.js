@@ -1,5 +1,12 @@
 import crypto from 'crypto';
-import { createQuery, compile, queryClass, PreAggregations, QueryFactory } from '@cubejs-backend/schema-compiler';
+import {
+  createQuery,
+  compile,
+  queryClass,
+  PreAggregations,
+  QueryFactory,
+  prepareCompiler
+} from '@cubejs-backend/schema-compiler';
 import { v4 as uuidv4, parse as uuidParse } from 'uuid';
 import { LRUCache } from 'lru-cache';
 import { NativeInstance } from '@cubejs-backend/native';
@@ -86,6 +93,25 @@ export class CompilerApi {
     }
 
     return this.compilers;
+  }
+
+  /**
+   * Returns the compilers instances without model compilation,
+   * because it could fail and no compilers will be returned.
+   */
+  getCompilersInstances() {
+    if (this.compilers) {
+      return this.compilers;
+    }
+
+    return prepareCompiler(this.repository, {
+      allowNodeRequire: this.allowNodeRequire,
+      compileContext: this.compileContext,
+      allowJsDuplicatePropsInSchema: this.allowJsDuplicatePropsInSchema,
+      standalone: this.standalone,
+      nativeInstance: this.nativeInstance,
+      compiledScriptCache: this.compiledScriptCache,
+    });
   }
 
   async compileSchema(compilerVersion, requestId) {
@@ -425,6 +451,11 @@ export class CompilerApi {
     }
   }
 
+  /**
+   *
+   * @param {unknown} filter
+   * @returns {Promise<Array<PreAggregationInfo>>}
+   */
   async preAggregations(filter) {
     const { cubeEvaluator } = await this.getCompilers();
     return cubeEvaluator.preAggregations(filter);
@@ -595,6 +626,34 @@ export class CompilerApi {
       .map(
         (cube) => ({ [cube]: cubeEvaluator.cubeFromPath(cube).dataSource || 'default' })
       ).reduce((a, b) => ({ ...a, ...b }), {});
+  }
+
+  async memberToDataSource(query) {
+    const { cubeEvaluator } = await this.getCompilers({ requestId: query.requestId });
+
+    const entries = cubeEvaluator
+      .cubeNames()
+      .flatMap(cube => {
+        const cubeDef = cubeEvaluator.cubeFromPath(cube);
+        if (cubeDef.isView) {
+          const viewName = cubeDef.name;
+          return cubeDef.includedMembers.map(included => {
+            const memberName = `${viewName}.${included.name}`;
+            const refCubeDef = cubeEvaluator.cubeFromPath(included.memberPath);
+            const dataSource = refCubeDef.dataSource ?? 'default';
+            return [memberName, dataSource];
+          });
+        } else {
+          const cubeName = cubeDef.name;
+          const dataSource = cubeDef.dataSource ?? 'default';
+          return [
+            ...Object.keys(cubeDef.dimensions),
+            ...Object.keys(cubeDef.measures),
+            ...Object.keys(cubeDef.segments),
+          ].map(mem => [`${cubeName}.${mem}`, dataSource]);
+        }
+      });
+    return Object.fromEntries(entries);
   }
 
   async dataSources(orchestratorApi, query) {

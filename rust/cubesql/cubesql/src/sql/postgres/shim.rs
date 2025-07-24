@@ -1,5 +1,5 @@
 use std::{
-    backtrace::Backtrace, collections::HashMap, io::ErrorKind, pin::Pin, sync::Arc,
+    backtrace::Backtrace, collections::HashMap, io::ErrorKind, pin::pin, pin::Pin, sync::Arc,
     time::SystemTime,
 };
 
@@ -22,7 +22,7 @@ use crate::{
     transport::{MetaContext, SpanId},
     CubeError,
 };
-use futures::{pin_mut, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt};
 use log::{debug, error, trace};
 use pg_srv::{
     buffer,
@@ -972,7 +972,7 @@ impl AsyncPostgresShim {
 
                 let mut portal = Pin::new(portal);
                 let stream = portal.execute(execute.max_rows as usize);
-                pin_mut!(stream);
+                let mut stream = pin!(stream);
 
                 loop {
                     tokio::select! {
@@ -1117,13 +1117,21 @@ impl AsyncPostgresShim {
                     if let Some(qtrace) = qtrace {
                         qtrace.push_statement(&query);
                     }
-                    self.prepare_statement(parse.name, Ok(query), false, qtrace, span_id.clone())
-                        .await?;
+                    self.prepare_statement(
+                        parse.name,
+                        Ok(query),
+                        &parse.param_types,
+                        false,
+                        qtrace,
+                        span_id.clone(),
+                    )
+                    .await?;
                 }
                 Err(err) => {
                     self.prepare_statement(
                         parse.name,
                         Err(parse.query.to_string()),
+                        &parse.param_types,
                         false,
                         qtrace,
                         span_id.clone(),
@@ -1143,6 +1151,7 @@ impl AsyncPostgresShim {
         &mut self,
         name: String,
         query: Result<Statement, String>,
+        param_types: &[u32],
         from_sql: bool,
         qtrace: &mut Option<Qtrace>,
         span_id: Option<Arc<SpanId>>,
@@ -1170,7 +1179,7 @@ impl AsyncPostgresShim {
 
         let (pstmt, result) = match query {
             Ok(query) => {
-                let stmt_finder = PostgresStatementParamsFinder::new();
+                let stmt_finder = PostgresStatementParamsFinder::new(param_types);
                 let parameters: Vec<PgTypeId> = stmt_finder
                     .find(&query)?
                     .into_iter()
@@ -1703,8 +1712,15 @@ impl AsyncPostgresShim {
                     _ => *statement,
                 };
 
-                self.prepare_statement(name.value, Ok(statement), true, qtrace, span_id.clone())
-                    .await?;
+                self.prepare_statement(
+                    name.value,
+                    Ok(statement),
+                    &[],
+                    true,
+                    qtrace,
+                    span_id.clone(),
+                )
+                .await?;
 
                 let plan = QueryPlan::MetaOk(StatusFlags::empty(), CommandCompletion::Prepare);
 
@@ -1745,7 +1761,7 @@ impl AsyncPostgresShim {
     ) -> Result<(), ConnectionError> {
         let mut portal = Pin::new(portal);
         let stream = portal.execute(max_rows);
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         loop {
             tokio::select! {

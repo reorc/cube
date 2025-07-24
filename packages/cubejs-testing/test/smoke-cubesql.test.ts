@@ -148,6 +148,76 @@ describe('SQL API', () => {
       expect(rows).toBe(ROWS_LIMIT);
     });
 
+    it('streams schema and empty data with LIMIT 0', async () => {
+      const response = await fetch(`${birdbox.configuration.apiUrl}/cubesql`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: token,
+        },
+        body: JSON.stringify({
+          query: 'SELECT orderDate FROM ECommerce LIMIT 0;',
+        }),
+      });
+
+      const reader = response.body;
+      let isFirstChunk = true;
+      let schemaReceived = false;
+      let emptyDataReceived = false;
+
+      let data = '';
+      const execute = () => new Promise<void>((resolve, reject) => {
+        const onData = jest.fn((chunk: Buffer) => {
+          const chunkStr = chunk.toString('utf-8');
+          
+          if (isFirstChunk) {
+            isFirstChunk = false;
+            const json = JSON.parse(chunkStr);
+            expect(json.schema).toEqual([
+              {
+                name: 'orderDate',
+                column_type: 'Timestamp',
+              },
+            ]);
+            schemaReceived = true;
+          } else {
+            data += chunkStr;
+            const json = JSON.parse(chunkStr);
+            if (json.data && Array.isArray(json.data) && json.data.length === 0) {
+              emptyDataReceived = true;
+            }
+          }
+        });
+        reader.on('data', onData);
+
+        const onError = jest.fn(() => reject(new Error('Stream error')));
+        reader.on('error', onError);
+
+        const onEnd = jest.fn(() => {
+          resolve();
+        });
+
+        reader.on('end', onEnd);
+      });
+
+      await execute();
+      
+      // Verify schema was sent first
+      expect(schemaReceived).toBe(true);
+      
+      // Verify empty data was sent
+      expect(emptyDataReceived).toBe(true);
+      
+      // Verify no actual rows were returned
+      const dataLines = data.split('\n').filter((it) => it.trim());
+      if (dataLines.length > 0) {
+        const rows = dataLines
+          .map((it) => JSON.parse(it).data?.length || 0)
+          .reduce((a, b) => a + b, 0);
+        expect(rows).toBe(0);
+      }
+    });
+
     describe('sql4sql', () => {
       async function generateSql(query: string, disablePostPprocessing: boolean = false) {
         const response = await fetch(`${birdbox.configuration.apiUrl}/sql`, {
@@ -666,6 +736,34 @@ filter_subq AS (
       expect(res.rows).toMatchSnapshot('join grouped on coalesce');
     });
 
+    test('join with grouped query and empty members', async () => {
+      const query = `
+        SELECT
+          top_orders.status
+        FROM
+          "Orders"
+          INNER JOIN
+          (
+            SELECT
+              status,
+              SUM(totalAmount)
+            FROM
+              "Orders"
+            GROUP BY 1
+            ORDER BY 2 DESC
+            LIMIT 2
+          ) top_orders
+        ON
+          "Orders".status = top_orders.status
+        GROUP BY 1
+        ORDER BY 1
+        `;
+
+      const res = await connection.query(query);
+      // Expect only top statuses 2 by total amount: processed and shipped
+      expect(res.rows).toMatchSnapshot('join grouped empty members');
+    });
+
     test('where segment is false', async () => {
       const query =
         'SELECT value AS val, * FROM "SegmentTest" WHERE segment_eq_1 IS FALSE ORDER BY value;';
@@ -857,6 +955,34 @@ filter_subq AS (
 
       const res = await connection.query(query);
       expect(res.rows).toMatchSnapshot('measure-with-ad-hoc-filters-and-original-measure');
+    });
+
+    /// Query references `updatedAt` in three places: in outer projection, in grouping key and in window
+    /// Incoming query is consistent: all three references same column
+    /// This tests that generated SQL for pushdown remains consistent:
+    /// whatever is present in grouping key should be present in window expression
+    /// Interesting part here is that single column (and member expression) contains
+    /// two different TD, one with granularity and one without, and both have to match grouping key
+    test('member expression with granularity and raw time dimensions', async () => {
+      const query = `
+        SELECT
+          DATE_TRUNC('qtr', createdAt) AS quarter,
+          updatedAt,
+          SUM(CASE
+                WHEN sum(totalAmount) IS NOT NULL THEN sum(totalAmount)
+                ELSE 0
+          END) OVER (
+            PARTITION BY DATE_TRUNC('qtr', createdAt)
+            ORDER BY updatedAt
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS total
+        FROM Orders
+        GROUP BY
+          1, 2
+      `;
+
+      const res = await connection.query(query);
+      expect(res.rows).toMatchSnapshot();
     });
   });
 });

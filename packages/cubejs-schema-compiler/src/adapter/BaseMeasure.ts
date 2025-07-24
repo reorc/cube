@@ -1,6 +1,7 @@
 import { UserError } from '../compiler/UserError';
 import type { BaseQuery } from './BaseQuery';
 import { MeasureDefinition } from '../compiler/CubeEvaluator';
+import { CubeSymbols } from '../compiler/CubeSymbols';
 
 export class BaseMeasure {
   public readonly expression: any;
@@ -12,6 +13,8 @@ export class BaseMeasure {
   public readonly isMemberExpression: boolean = false;
 
   protected readonly patchedMeasure: MeasureDefinition | null = null;
+
+  public readonly joinHint: Array<string> = [];
 
   protected preparePatchedMeasure(sourceMeasure: string, newMeasureType: string | null, addFilters: Array<{sql: Function}>): MeasureDefinition {
     const source = this.query.cubeEvaluator.measureByPath(sourceMeasure);
@@ -123,6 +126,12 @@ export class BaseMeasure {
           measure.expression.addFilters,
         );
       }
+    } else {
+      // TODO move this `as` to static types
+      const measurePath = measure as string;
+      const { path, joinHint } = CubeSymbols.joinHintFromPath(measurePath);
+      this.measure = path;
+      this.joinHint = joinHint;
     }
   }
 
@@ -197,32 +206,32 @@ export class BaseMeasure {
     return this.measureDefinition();
   }
 
-  public aliasName() {
+  public aliasName(): string {
     return this.query.escapeColumnName(this.unescapedAliasName());
   }
 
-  public unescapedAliasName() {
+  public unescapedAliasName(): string {
     if (this.expression) {
       return this.query.aliasName(this.expressionName);
     }
     return this.query.aliasName(this.measure);
   }
 
-  public isCumulative() {
+  public isCumulative(): boolean {
     if (this.expression) { // TODO
       return false;
     }
     return BaseMeasure.isCumulative(this.measureDefinition());
   }
 
-  public isMultiStage() {
+  public isMultiStage(): boolean {
     if (this.expression) { // TODO
       return false;
     }
     return this.definition().multiStage;
   }
 
-  public isAdditive() {
+  public isAdditive(): boolean {
     if (this.expression) { // TODO
       return false;
     }
@@ -234,7 +243,7 @@ export class BaseMeasure {
       definition.type === 'min' || definition.type === 'max';
   }
 
-  public static isCumulative(definition) {
+  public static isCumulative(definition): boolean {
     return definition.type === 'runningTotal' || !!definition.rollingWindow;
   }
 
@@ -296,7 +305,7 @@ export class BaseMeasure {
     return this.query.minGranularity(granularityA, granularityB);
   }
 
-  public granularityFromInterval(interval: string) {
+  public granularityFromInterval(interval: string): string | undefined {
     if (!interval) {
       return undefined;
     }
@@ -314,7 +323,7 @@ export class BaseMeasure {
     return undefined;
   }
 
-  public shouldUngroupForCumulative() {
+  public shouldUngroupForCumulative(): boolean {
     return this.measureDefinition().rollingWindow && !this.isAdditive();
   }
 
@@ -322,17 +331,23 @@ export class BaseMeasure {
     return this.measureDefinition().sql;
   }
 
-  public path() {
+  public path(): string[] | null {
     if (this.expression) {
       return null;
     }
     return this.query.cubeEvaluator.parsePath('measures', this.measure);
   }
 
-  public expressionPath() {
+  public expressionPath(): string {
     if (this.expression) {
       return `expr:${this.expression.expressionName}`;
     }
-    return this.query.cubeEvaluator.pathFromArray(this.path());
+
+    const path = this.path();
+    if (path === null) {
+      // Sanity check, this should not actually happen because we checked this.expression earlier
+      throw new Error('Unexpected null path');
+    }
+    return this.query.cubeEvaluator.pathFromArray(path);
   }
 }

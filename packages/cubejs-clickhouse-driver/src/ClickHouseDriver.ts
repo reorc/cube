@@ -34,6 +34,8 @@ import fetch from 'cross-fetch';
 
 import { transformRow, transformStreamRow } from './HydrationStream';
 
+const SUPPORTED_BUCKET_TYPES = ['s3'];
+
 const ClickhouseTypeToGeneric: Record<string, string> = {
   enum: 'text',
   string: 'text',
@@ -369,7 +371,9 @@ export class ClickHouseDriver extends BaseDriver implements DriverInterface {
           abort_signal: signal,
         });
 
-        if (resultSet.response_headers['x-clickhouse-format'] !== format) {
+        // response_headers['x-clickhouse-format'] is optional, but if it exists,
+        // it should match the requested format.
+        if (resultSet.response_headers['x-clickhouse-format'] && resultSet.response_headers['x-clickhouse-format'] !== format) {
           throw new Error(`Unexpected x-clickhouse-format in response: expected ${format}, received ${resultSet.response_headers['x-clickhouse-format']}`);
         }
 
@@ -592,11 +596,9 @@ export class ClickHouseDriver extends BaseDriver implements DriverInterface {
   protected getExportBucket(
     dataSource: string,
   ): ClickhouseDriverExportAWS | null {
-    const supportedBucketTypes = ['s3'];
-
     const requiredExportBucket: ClickhouseDriverExportRequiredAWS = {
       bucketType: getEnv('dbExportBucketType', {
-        supported: supportedBucketTypes,
+        supported: SUPPORTED_BUCKET_TYPES,
         dataSource,
       }),
       bucketName: getEnv('dbExportBucket', { dataSource }),
@@ -610,9 +612,9 @@ export class ClickHouseDriver extends BaseDriver implements DriverInterface {
     };
 
     if (exportBucket.bucketType) {
-      if (!supportedBucketTypes.includes(exportBucket.bucketType)) {
+      if (!SUPPORTED_BUCKET_TYPES.includes(exportBucket.bucketType)) {
         throw new Error(
-          `Unsupported EXPORT_BUCKET_TYPE, supported: ${supportedBucketTypes.join(',')}`
+          `Unsupported EXPORT_BUCKET_TYPE, supported: ${SUPPORTED_BUCKET_TYPES.join(',')}`
         );
       }
 
@@ -632,11 +634,7 @@ export class ClickHouseDriver extends BaseDriver implements DriverInterface {
   }
 
   public async isUnloadSupported() {
-    if (this.config.exportBucket) {
-      return true;
-    }
-
-    return false;
+    return !!this.config.exportBucket;
   }
 
   /**
@@ -691,18 +689,19 @@ export class ClickHouseDriver extends BaseDriver implements DriverInterface {
     );
   }
 
-  public async unloadFromQuery(sql: string, params: unknown[], options: UnloadOptions): Promise<DownloadTableCSVData> {
+  public async unloadFromQuery(sql: string, params: unknown[], _options: UnloadOptions): Promise<DownloadTableCSVData> {
     if (!this.config.exportBucket) {
       throw new Error('Unload is not configured');
     }
 
     const types = await this.queryColumnTypes(`(${sql})`, params);
-    const exportPrefix = uuidv4();
+    const { bucketName, path } = this.parseBucketUrl(this.config.exportBucket.bucketName);
+    const exportPrefix = path ? `${path}/${uuidv4()}` : uuidv4();
 
     const formattedQuery = sqlstring.format(`
       INSERT INTO FUNCTION
          s3(
-             'https://${this.config.exportBucket.bucketName}.s3.${this.config.exportBucket.region}.amazonaws.com/${exportPrefix}/export.csv.gz',
+             'https://${bucketName}.s3.${this.config.exportBucket.region}.amazonaws.com/${exportPrefix}/export.csv.gz',
              '${this.config.exportBucket.keyId}',
              '${this.config.exportBucket.secretKey}',
              'CSV'
@@ -720,7 +719,7 @@ export class ClickHouseDriver extends BaseDriver implements DriverInterface {
         },
         region: this.config.exportBucket.region,
       },
-      this.config.exportBucket.bucketName,
+      bucketName,
       exportPrefix,
     );
 

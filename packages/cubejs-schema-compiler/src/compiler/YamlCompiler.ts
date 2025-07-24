@@ -37,7 +37,7 @@ export class YamlCompiler {
   ) {
   }
 
-  protected getJinjaEngine(): JinjaEngine {
+  public getJinjaEngine(): JinjaEngine {
     if (this.jinjaEngine) {
       return this.jinjaEngine;
     }
@@ -53,6 +53,16 @@ export class YamlCompiler {
     });
   }
 
+  public async renderTemplate(file: FileContent, compileContext, pythonContext: PythonCtx): Promise<FileContent> {
+    return {
+      fileName: file.fileName,
+      content: await this.getJinjaEngine().renderTemplate(file.fileName, compileContext, {
+        ...pythonContext.functions,
+        ...pythonContext.variables
+      }),
+    };
+  }
+
   public async compileYamlWithJinjaFile(
     file: FileContent,
     errorsReport: ErrorReporter,
@@ -63,15 +73,9 @@ export class YamlCompiler {
     toCompile,
     compiledFiles,
     compileContext,
-    pythonContext
+    pythonContext: PythonCtx
   ) {
-    const compiledFile = {
-      fileName: file.fileName,
-      content: await this.getJinjaEngine().renderTemplate(file.fileName, compileContext, {
-        ...pythonContext.functions,
-        ...pythonContext.variables
-      }),
-    };
+    const compiledFile = await this.renderTemplate(file, compileContext, pythonContext);
 
     return this.compileYamlFile(
       compiledFile,
@@ -90,7 +94,7 @@ export class YamlCompiler {
       return;
     }
 
-    const yamlObj = YAML.load(file.content);
+    const yamlObj: any = YAML.load(file.content);
     if (!yamlObj) {
       return;
     }

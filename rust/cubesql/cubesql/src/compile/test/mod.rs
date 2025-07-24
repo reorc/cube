@@ -8,9 +8,10 @@ use crate::{
     },
     config::{ConfigObj, ConfigObjImpl},
     sql::{
-        compiler_cache::CompilerCacheImpl, dataframe::batches_to_dataframe,
-        pg_auth_service::PostgresAuthServiceDefaultImpl, AuthContextRef, AuthenticateResponse,
-        HttpAuthContext, ServerManager, Session, SessionManager, SqlAuthService,
+        auth_service::SqlAuthServiceAuthenticateRequest, compiler_cache::CompilerCacheImpl,
+        dataframe::batches_to_dataframe, pg_auth_service::PostgresAuthServiceDefaultImpl,
+        AuthContextRef, AuthenticateResponse, HttpAuthContext, ServerManager, Session,
+        SessionManager, SqlAuthService,
     },
     transport::{
         CubeMeta, CubeMetaDimension, CubeMetaJoin, CubeMetaMeasure, CubeMetaSegment,
@@ -59,6 +60,11 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
             title: None,
             r#type: V1CubeMetaType::Cube,
             dimensions: vec![
+                CubeMetaDimension {
+                    name: "KibanaSampleDataEcommerce.id".to_string(),
+                    r#type: "number".to_string(),
+                    ..CubeMetaDimension::default()
+                },
                 CubeMetaDimension {
                     name: "KibanaSampleDataEcommerce.order_date".to_string(),
                     r#type: "time".to_string(),
@@ -168,6 +174,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
                 relationship: "belongsTo".to_string(),
             }]),
             folders: None,
+            nested_folders: None,
             hierarchies: None,
             meta: None,
         },
@@ -219,6 +226,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
                 relationship: "belongsTo".to_string(),
             }]),
             folders: None,
+            nested_folders: None,
             hierarchies: None,
             meta: None,
         },
@@ -240,6 +248,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
             segments: vec![],
             joins: None,
             folders: None,
+            nested_folders: None,
             hierarchies: None,
             meta: None,
         },
@@ -319,6 +328,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
             segments: Vec::new(),
             joins: Some(Vec::new()),
             folders: None,
+            nested_folders: None,
             hierarchies: None,
             meta: None,
         },
@@ -437,6 +447,7 @@ pub fn get_test_meta() -> Vec<CubeMeta> {
             segments: Vec::new(),
             joins: Some(Vec::new()),
             folders: None,
+            nested_folders: None,
             hierarchies: None,
             meta: None,
         },
@@ -462,6 +473,7 @@ pub fn get_string_cube_meta() -> Vec<CubeMeta> {
         segments: vec![],
         joins: None,
         folders: None,
+        nested_folders: None,
         hierarchies: None,
         meta: None,
     }]
@@ -506,6 +518,7 @@ pub fn get_sixteen_char_member_cube() -> Vec<CubeMeta> {
         segments: vec![],
         joins: None,
         folders: None,
+        nested_folders: None,
         hierarchies: None,
         meta: None,
     }]
@@ -536,25 +549,8 @@ pub fn get_test_tenant_ctx() -> Arc<MetaContext> {
 }
 
 pub fn get_test_tenant_ctx_customized(custom_templates: Vec<(String, String)>) -> Arc<MetaContext> {
-    Arc::new(MetaContext::new(
-        get_test_meta(),
-        vec![
-            (
-                "KibanaSampleDataEcommerce".to_string(),
-                "default".to_string(),
-            ),
-            ("Logs".to_string(), "default".to_string()),
-            ("NumberCube".to_string(), "default".to_string()),
-            ("WideCube".to_string(), "default".to_string()),
-            ("MultiTypeCube".to_string(), "default".to_string()),
-        ]
-        .into_iter()
-        .collect(),
-        vec![("default".to_string(), sql_generator(custom_templates))]
-            .into_iter()
-            .collect(),
-        Uuid::new_v4(),
-    ))
+    let meta = get_test_meta();
+    get_test_tenant_ctx_with_meta_and_templates(meta, custom_templates)
 }
 
 pub fn sql_generator(
@@ -591,6 +587,7 @@ pub fn sql_generator(
                     ("functions/RIGHT".to_string(), "RIGHT({{ args_concat }})".to_string()),
                     ("functions/LOWER".to_string(), "LOWER({{ args_concat }})".to_string()),
                     ("functions/UPPER".to_string(), "UPPER({{ args_concat }})".to_string()),
+                    ("functions/PERCENTILECONT".to_string(), "PERCENTILE_CONT({{ args_concat }})".to_string()),
                     ("expressions/extract".to_string(), "EXTRACT({{ date_part }} FROM {{ expr }})".to_string()),
                     (
                         "statements/select".to_string(),
@@ -635,6 +632,7 @@ OFFSET {{ offset }}{% endif %}"#.to_string(),
                     ("expressions/like".to_string(), "{{ expr }} {% if negated %}NOT {% endif %}LIKE {{ pattern }}".to_string()),
                     ("expressions/ilike".to_string(), "{{ expr }} {% if negated %}NOT {% endif %}ILIKE {{ pattern }}".to_string()),
                     ("expressions/like_escape".to_string(), "{{ like_expr }} ESCAPE {{ escape_char }}".to_string()),
+                    ("expressions/within_group".to_string(), "{{ fun_sql }} WITHIN GROUP (ORDER BY {{ within_group_concat }})".to_string()),
                     ("join_types/inner".to_string(), "INNER".to_string()),
                     ("join_types/left".to_string(), "LEFT".to_string()),
                     ("quotes/identifiers".to_string(), "\"".to_string()),
@@ -669,19 +667,33 @@ OFFSET {{ offset }}{% endif %}"#.to_string(),
     })
 }
 
-pub fn get_test_tenant_ctx_with_meta(meta: Vec<CubeMeta>) -> Arc<MetaContext> {
-    let cube_to_data_source = meta
+fn get_test_tenant_ctx_with_meta_and_templates(
+    meta: Vec<CubeMeta>,
+    custom_templates: Vec<(String, String)>,
+) -> Arc<MetaContext> {
+    let member_to_data_source = meta
         .iter()
-        .map(|c| (c.name.clone(), "default".to_string()))
+        .flat_map(|cube| {
+            cube.dimensions
+                .iter()
+                .map(|d| &d.name)
+                .chain(cube.measures.iter().map(|m| &m.name))
+                .chain(cube.segments.iter().map(|s| &s.name))
+        })
+        .map(|member| (member.clone(), "default".to_string()))
         .collect();
     Arc::new(MetaContext::new(
         meta,
-        cube_to_data_source,
-        vec![("default".to_string(), sql_generator(vec![]))]
+        member_to_data_source,
+        vec![("default".to_string(), sql_generator(custom_templates))]
             .into_iter()
             .collect(),
         Uuid::new_v4(),
     ))
+}
+
+pub fn get_test_tenant_ctx_with_meta(meta: Vec<CubeMeta>) -> Arc<MetaContext> {
+    get_test_tenant_ctx_with_meta_and_templates(meta, vec![])
 }
 
 pub async fn get_test_session(
@@ -750,6 +762,7 @@ pub fn get_test_auth() -> Arc<dyn SqlAuthService> {
     impl SqlAuthService for TestSqlAuth {
         async fn authenticate(
             &self,
+            _request: SqlAuthServiceAuthenticateRequest,
             _user: Option<String>,
             password: Option<String>,
         ) -> Result<AuthenticateResponse, CubeError> {

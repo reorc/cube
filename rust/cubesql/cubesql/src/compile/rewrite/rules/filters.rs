@@ -1,16 +1,17 @@
 use super::utils;
+use crate::compile::date_parser::parse_date_str;
 use crate::{
     compile::rewrite::{
         alias_expr,
         analysis::{ConstantFolding, Member, OriginalExpr},
-        between_expr, binary_expr, case_expr, case_expr_var_arg, cast_expr, change_user_member,
-        column_expr, cube_scan, cube_scan_filters, cube_scan_filters_empty_tail, cube_scan_members,
-        dimension_expr, expr_column_name, filter, filter_member, filter_op, filter_op_filters,
-        filter_op_filters_empty_tail, filter_replacer, filter_simplify_pull_up_replacer,
-        filter_simplify_push_down_replacer, fun_expr, fun_expr_args_legacy, fun_expr_var_arg,
-        inlist_expr, inlist_expr_list, is_not_null_expr, is_null_expr, like_expr, limit,
-        list_rewrite, literal_bool, literal_expr, literal_int, literal_string, measure_expr,
-        negative_expr, not_expr, projection, rewrite,
+        between_expr, binary_expr, case_expr, case_expr_var_arg, cast_expr, cast_expr_explicit,
+        change_user_member, column_expr, cube_scan, cube_scan_filters,
+        cube_scan_filters_empty_tail, cube_scan_members, dimension_expr, expr_column_name, filter,
+        filter_member, filter_op, filter_op_filters, filter_op_filters_empty_tail, filter_replacer,
+        filter_simplify_pull_up_replacer, filter_simplify_push_down_replacer, fun_expr,
+        fun_expr_args_legacy, fun_expr_var_arg, inlist_expr, inlist_expr_list, is_not_null_expr,
+        is_null_expr, like_expr, limit, list_rewrite, literal_bool, literal_expr, literal_int,
+        literal_null, literal_string, measure_expr, negative_expr, not_expr, projection, rewrite,
         rewriter::{CubeEGraph, CubeRewrite, RewriteRules},
         scalar_fun_expr_args_empty_tail, segment_member, time_dimension_date_range_replacer,
         time_dimension_expr, transform_original_expr_to_alias, transforming_chain_rewrite,
@@ -36,7 +37,7 @@ use chrono::{
         Numeric::{Day, Hour, Minute, Month, Second, Year},
         Pad::Zero,
     },
-    DateTime, Datelike, Days, Duration, Months, NaiveDate, NaiveDateTime, Timelike, Weekday,
+    DateTime, Datelike, Days, Duration, Months, NaiveDateTime, Timelike, Weekday,
 };
 use cubeclient::models::V1CubeMeta;
 use datafusion::{
@@ -85,6 +86,7 @@ impl RewriteRules for FilterRules {
                         "?can_pushdown_join",
                         "?wrapped",
                         "?ungrouped",
+                        "?join_hints",
                     ),
                 ),
                 cube_scan(
@@ -98,6 +100,7 @@ impl RewriteRules for FilterRules {
                     "?can_pushdown_join",
                     "?wrapped",
                     "?ungrouped",
+                    "?join_hints",
                 ),
                 self.push_down_filter_simplify("?expr"),
             ),
@@ -117,6 +120,7 @@ impl RewriteRules for FilterRules {
                         "?can_pushdown_join",
                         "?wrapped",
                         "?ungrouped",
+                        "?join_hints",
                     ),
                 ),
                 limit(
@@ -133,6 +137,7 @@ impl RewriteRules for FilterRules {
                         "?can_pushdown_join",
                         "?wrapped",
                         "?ungrouped",
+                        "?join_hints",
                     ),
                 ),
                 self.push_down_limit_filter(
@@ -177,6 +182,7 @@ impl RewriteRules for FilterRules {
                             "?can_pushdown_join",
                             "?wrapped",
                             "?ungrouped",
+                            "?join_hints",
                         ),
                     ),
                 ),
@@ -196,6 +202,7 @@ impl RewriteRules for FilterRules {
                             "?can_pushdown_join",
                             "?wrapped",
                             "?ungrouped",
+                            "?join_hints",
                         ),
                     ),
                 ),
@@ -234,6 +241,7 @@ impl RewriteRules for FilterRules {
                             "?can_pushdown_join",
                             "?wrapped",
                             "?ungrouped",
+                            "?join_hints",
                         ),
                     ),
                     "?alias",
@@ -255,6 +263,7 @@ impl RewriteRules for FilterRules {
                             "?can_pushdown_join",
                             "?wrapped",
                             "?ungrouped",
+                            "?join_hints",
                         ),
                         "?alias",
                         "?projection_split",
@@ -274,6 +283,7 @@ impl RewriteRules for FilterRules {
                     "?can_pushdown_join",
                     "?wrapped",
                     "?ungrouped",
+                    "?join_hints",
                 ),
                 cube_scan(
                     "?alias_to_cube",
@@ -294,6 +304,7 @@ impl RewriteRules for FilterRules {
                     "?can_pushdown_join",
                     "?wrapped",
                     "?ungrouped",
+                    "?join_hints",
                 ),
                 self.push_down_filter("?alias_to_cube", "?filter_alias_to_cube", "?filter_aliases"),
             ),
@@ -1657,15 +1668,43 @@ impl RewriteRules for FilterRules {
                     "?filter_aliases",
                 ),
             ),
+            // DATE_PART('year', "KibanaSampleDataEcommerce"."order_date") = 2019
             transforming_rewrite(
                 "extract-year-equals",
+                filter_replacer(
+                    binary_expr(
+                        self.fun_expr(
+                            "DatePart",
+                            vec![literal_string("year"), column_expr("?column")],
+                        ),
+                        "=",
+                        literal_expr("?year"),
+                    ),
+                    "?alias_to_cube",
+                    "?members",
+                    "?filter_aliases",
+                ),
+                filter_member("?member", "FilterMemberOp:inDateRange", "?values"),
+                self.transform_filter_extract_year_equals(
+                    "?year",
+                    "?column",
+                    "?alias_to_cube",
+                    "?members",
+                    "?member",
+                    "?values",
+                    "?filter_aliases",
+                ),
+            ),
+            // TRUNC(EXTRACT(YEAR FROM "KibanaSampleDataEcommerce"."order_date")) = 2019
+            transforming_rewrite(
+                "extract-trunc-year-equals",
                 filter_replacer(
                     binary_expr(
                         self.fun_expr(
                             "Trunc",
                             vec![self.fun_expr(
                                 "DatePart",
-                                vec![literal_string("YEAR"), column_expr("?column")],
+                                vec![literal_string("year"), column_expr("?column")],
                             )],
                         ),
                         "=",
@@ -1809,6 +1848,38 @@ impl RewriteRules for FilterRules {
                         binary_expr(column_expr("?column"), ">=", literal_expr("?start_date")),
                         "AND",
                         binary_expr(column_expr("?column"), "<", literal_expr("?end_date")),
+                    ),
+                    "?alias_to_cube",
+                    "?members",
+                    "?filter_aliases",
+                ),
+                self.transform_date_trunc_eq_literal(
+                    "?granularity",
+                    "?date",
+                    "?start_date",
+                    "?end_date",
+                ),
+            ),
+            transforming_rewrite(
+                "filter-date-trunc-neq-literal",
+                filter_replacer(
+                    binary_expr(
+                        self.fun_expr(
+                            "DateTrunc",
+                            vec!["?granularity".to_string(), column_expr("?column")],
+                        ),
+                        "!=",
+                        "?date".to_string(),
+                    ),
+                    "?alias_to_cube",
+                    "?members",
+                    "?filter_aliases",
+                ),
+                filter_replacer(
+                    binary_expr(
+                        binary_expr(column_expr("?column"), "<", literal_expr("?start_date")),
+                        "OR",
+                        binary_expr(column_expr("?column"), ">=", literal_expr("?end_date")),
                     ),
                     "?alias_to_cube",
                     "?members",
@@ -2420,6 +2491,67 @@ impl RewriteRules for FilterRules {
                 self.transform_not_column_equals_date("?literal", "?one_day"),
             ),
             rewrite(
+                "filter-tableau-case-when-not-null",
+                filter_replacer(
+                    binary_expr(
+                        case_expr(
+                            None,
+                            vec![(
+                                not_expr(is_null_expr("?left_expr")),
+                                "?left_expr".to_string(),
+                            )],
+                            Some(literal_null()),
+                        ),
+                        "?op",
+                        "?right_expr",
+                    ),
+                    "?alias_to_cube",
+                    "?members",
+                    "?filter_aliases",
+                ),
+                filter_replacer(
+                    binary_expr("?left_expr", "?op", "?right_expr"),
+                    "?alias_to_cube",
+                    "?members",
+                    "?filter_aliases",
+                ),
+            ),
+            rewrite(
+                "filter-tableau-cast-text-to-timestamp-to-date",
+                filter_replacer(
+                    binary_expr(
+                        cast_expr_explicit(
+                            udf_expr(
+                                "str_to_date",
+                                vec![
+                                    column_expr("?column"),
+                                    literal_string("YYYY-MM-DD\"T\"HH24:MI:SS.MS"),
+                                ],
+                            ),
+                            DataType::Date32,
+                        ),
+                        "?op",
+                        "?right_expr",
+                    ),
+                    "?alias_to_cube",
+                    "?members",
+                    "?filter_aliases",
+                ),
+                filter_replacer(
+                    binary_expr(
+                        self.fun_expr(
+                            "DateTrunc",
+                            vec![literal_string("day"), column_expr("?column")],
+                        ),
+                        "?op",
+                        "?right_expr",
+                    ),
+                    "?alias_to_cube",
+                    "?members",
+                    "?filter_aliases",
+                ),
+            ),
+            rewrite(
                 "in-date-range-to-time-dimension-pull-up-left",
                 cube_scan_filters(
                     time_dimension_date_range_replacer(
@@ -2468,6 +2600,7 @@ impl RewriteRules for FilterRules {
                     "?can_pushdown_join",
                     "?wrapped",
                     "?ungrouped",
+                    "?join_hints",
                 ),
                 cube_scan(
                     "?source_table_name",
@@ -2484,6 +2617,7 @@ impl RewriteRules for FilterRules {
                     "?can_pushdown_join",
                     "?wrapped",
                     "?ungrouped",
+                    "?join_hints",
                 ),
             ),
             transforming_rewrite(
@@ -3473,43 +3607,54 @@ impl FilterRules {
                     .collect();
             for year in years {
                 for aliases in aliases_es.iter() {
-                    if let ScalarValue::Int64(Some(year)) = year {
-                        if !(1000..=9999).contains(&year) {
+                    let year = match year {
+                        ScalarValue::Int64(Some(year)) => year,
+                        ScalarValue::Int32(Some(year)) => year as i64,
+                        ScalarValue::Utf8(Some(ref year_str)) if year_str.len() == 4 => {
+                            if let Ok(year) = year_str.parse::<i64>() {
+                                year
+                            } else {
+                                continue;
+                            }
+                        }
+                        _ => continue,
+                    };
+
+                    if !(1000..=9999).contains(&year) {
+                        continue;
+                    }
+
+                    if let Some((member_name, cube)) = Self::filter_member_name(
+                        egraph,
+                        subst,
+                        &meta_context,
+                        alias_to_cube_var,
+                        column_var,
+                        members_var,
+                        &aliases,
+                    ) {
+                        if !cube.contains_member(&member_name) {
                             continue;
                         }
 
-                        if let Some((member_name, cube)) = Self::filter_member_name(
-                            egraph,
-                            subst,
-                            &meta_context,
-                            alias_to_cube_var,
-                            column_var,
-                            members_var,
-                            &aliases,
-                        ) {
-                            if !cube.contains_member(&member_name) {
-                                continue;
-                            }
+                        subst.insert(
+                            member_var,
+                            egraph.add(LogicalPlanLanguage::FilterMemberMember(
+                                FilterMemberMember(member_name.to_string()),
+                            )),
+                        );
 
-                            subst.insert(
-                                member_var,
-                                egraph.add(LogicalPlanLanguage::FilterMemberMember(
-                                    FilterMemberMember(member_name.to_string()),
-                                )),
-                            );
+                        subst.insert(
+                            values_var,
+                            egraph.add(LogicalPlanLanguage::FilterMemberValues(
+                                FilterMemberValues(vec![
+                                    format!("{}-01-01", year),
+                                    format!("{}-12-31", year),
+                                ]),
+                            )),
+                        );
 
-                            subst.insert(
-                                values_var,
-                                egraph.add(LogicalPlanLanguage::FilterMemberValues(
-                                    FilterMemberValues(vec![
-                                        format!("{}-01-01", year),
-                                        format!("{}-12-31", year),
-                                    ]),
-                                )),
-                            );
-
-                            return true;
-                        }
+                        return true;
                     }
                 }
             }
@@ -4463,36 +4608,36 @@ impl FilterRules {
         let date_range_start_op_var = date_range_start_op_var.parse().unwrap();
         let date_range_end_op_var = date_range_end_op_var.parse().unwrap();
         move |egraph, subst| {
-            fn resolve_time_delta(date_var: &String, op: &String) -> String {
+            fn resolve_time_delta(date_var: &String, op: &String) -> Option<String> {
                 if op == "afterDate" {
                     return increment_iso_timestamp_time(date_var);
                 } else if op == "beforeDate" {
                     return decrement_iso_timestamp_time(date_var);
                 } else {
-                    return date_var.clone();
+                    return Some(date_var.clone());
                 }
             }
 
-            fn increment_iso_timestamp_time(date_var: &String) -> String {
-                let timestamp = NaiveDateTime::parse_from_str(date_var, "%Y-%m-%dT%H:%M:%S%.fZ");
+            fn increment_iso_timestamp_time(date_var: &String) -> Option<String> {
+                let timestamp = parse_date_str(date_var);
                 let value = match timestamp {
                     Ok(val) => format_iso_timestamp(
                         val.checked_add_signed(Duration::milliseconds(1)).unwrap(),
                     ),
-                    Err(_) => date_var.clone(),
+                    Err(_) => return None,
                 };
-                return value;
+                return Some(value);
             }
 
-            fn decrement_iso_timestamp_time(date_var: &String) -> String {
-                let timestamp = NaiveDateTime::parse_from_str(date_var, "%Y-%m-%dT%H:%M:%S%.fZ");
+            fn decrement_iso_timestamp_time(date_var: &String) -> Option<String> {
+                let timestamp = parse_date_str(date_var);
                 let value = match timestamp {
                     Ok(val) => format_iso_timestamp(
                         val.checked_sub_signed(Duration::milliseconds(1)).unwrap(),
                     ),
-                    Err(_) => date_var.clone(),
+                    Err(_) => return None,
                 };
-                return value;
+                return Some(value);
             }
 
             for date_range_start in
@@ -4525,10 +4670,16 @@ impl FilterRules {
                             }
 
                             let mut result = Vec::new();
-                            let resolved_start_date =
-                                resolve_time_delta(&date_range_start[0], date_range_start_op);
-                            let resolved_end_date =
-                                resolve_time_delta(&date_range_end[0], date_range_end_op);
+                            let Some(resolved_start_date) =
+                                resolve_time_delta(&date_range_start[0], date_range_start_op)
+                            else {
+                                return false;
+                            };
+                            let Some(resolved_end_date) =
+                                resolve_time_delta(&date_range_end[0], date_range_end_op)
+                            else {
+                                return false;
+                            };
 
                             if swap_left_and_right {
                                 result.extend(vec![resolved_end_date]);
@@ -5117,12 +5268,7 @@ impl FilterRules {
         let Some(str) = str else {
             return Some(None);
         };
-        let dt = NaiveDateTime::parse_from_str(str, "%Y-%m-%d %H:%M:%S%.f")
-            .or_else(|_| NaiveDateTime::parse_from_str(str, "%Y-%m-%d %H:%M:%S"))
-            .or_else(|_| {
-                NaiveDate::parse_from_str(str, "%Y-%m-%d")
-                    .map(|date| date.and_hms_opt(0, 0, 0).unwrap())
-            });
+        let dt = parse_date_str(str.as_str());
         let Ok(dt) = dt else {
             return None;
         };

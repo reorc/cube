@@ -31,6 +31,11 @@ export type SQLServerConstructorOptions = {
   gatewayPort?: number,
 };
 
+export type SqlAuthServiceAuthenticateRequest = {
+  protocol: string;
+  method: string;
+};
+
 export class SQLServer {
   protected sqlInterfaceInstance: SqlInterfaceInstance | null = null;
 
@@ -88,10 +93,14 @@ export class SQLServer {
       let { securityContext } = session;
 
       if (request.meta.changeUser && request.meta.changeUser !== session.user) {
+        const sqlAuthRequest: SqlAuthServiceAuthenticateRequest = {
+          protocol: request.meta.protocol,
+          method: 'password',
+        };
         const canSwitch = session.superuser || await canSwitchSqlUser(session.user, request.meta.changeUser);
         if (canSwitch) {
           userForContext = request.meta.changeUser;
-          const current = await checkSqlAuth(request, userForContext, null);
+          const current = await checkSqlAuth({ ...request, ...sqlAuthRequest }, userForContext, null);
           securityContext = current.securityContext;
         } else {
           throw new Error(
@@ -119,14 +128,25 @@ export class SQLServer {
         };
       },
       checkSqlAuth: async ({ request, user, password }) => {
-        const { password: returnedPassword, superuser, securityContext, skipPasswordCheck } = await checkSqlAuth(request, user, password);
+        try {
+          const { password: returnedPassword, superuser, securityContext, skipPasswordCheck } = await checkSqlAuth(request, user, password);
 
-        return {
-          password: returnedPassword,
-          superuser: superuser || false,
-          securityContext,
-          skipPasswordCheck,
-        };
+          return {
+            password: returnedPassword,
+            superuser: superuser || false,
+            securityContext,
+            skipPasswordCheck,
+          };
+        } catch (e) {
+          this.apiGateway.log({
+            type: 'Auth Error',
+            protocol: (request as any).protocol,
+            method: (request as any).method,
+            apiType: 'sql',
+            error: (e as Error).stack || (e as Error).toString(),
+          });
+          throw e;
+        }
       },
       meta: async ({ request, session, onlyCompilerId }) => {
         const context = await this.apiGateway.contextByReq(<any> request, session.securityContext, request.id);
