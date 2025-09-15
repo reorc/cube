@@ -2176,7 +2176,13 @@ export class BaseQuery {
         [cubeNameToAttach] = cubeNamesForMeasure;
         break;
       default:
-        throw new Error(`Expected single cube for dimension-only measure ${measureName}, got ${cubeNamesForMeasure}`);
+        // For measures referencing multiple cubes (e.g., CROSS JOIN scenarios),
+        // treat as regular measure evaluated on top of join tree (similar to case 0)
+        // This avoids triggering multiplication checks while ensuring all cubes are available
+        return [measureName, [{
+          multiplied: false,  // Treat as non-multiplied to avoid multiplication errors
+          measure: m.measure, // Use original measure to preserve functionality
+        }]];
     }
 
     const multiplied = this.multipliedJoinRowResult(cubeNameToAttach) || false;
