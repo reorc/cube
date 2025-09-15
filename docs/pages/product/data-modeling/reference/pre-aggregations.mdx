@@ -193,7 +193,7 @@ cube(`completed_orders`, {
 ```yaml
 cubes:
   - name: completed_orders
-    sql: >
+    sql: |
       SELECT *
       FROM orders
       WHERE completed = true
@@ -1211,7 +1211,7 @@ cube(`orders`, {
 ```yaml
 cubes:
   - name: orders
-    sql: >
+    sql: |
       SELECT * FROM orders1 UNION ALL SELECT * FROM orders2 UNION ALL SELECT *
       FROM orders3
 
@@ -1600,7 +1600,8 @@ cubes:
           - name: category_created_at_index
             columns:
               - CUBE.category
-              - orders__created_at_day
+              # special syntax needed
+              - "{'orders__created_at_day'}"
     # ...
 ```
 

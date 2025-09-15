@@ -61,7 +61,7 @@ macro_rules! rocks_table_new {
                 self.db.db
             }
 
-            fn snapshot(&self) -> &cuberockstore::rocksdb::Snapshot {
+            fn snapshot(&self) -> &cuberockstore::rocksdb::Snapshot<'_> {
                 self.db.snapshot
             }
 
@@ -69,7 +69,7 @@ macro_rules! rocks_table_new {
                 &self.db.mem_seq
             }
 
-            fn table_ref(&self) -> &crate::metastore::DbTableRef {
+            fn table_ref(&self) -> &crate::metastore::DbTableRef<'_> {
                 &self.db
             }
 
@@ -448,8 +448,8 @@ pub trait RocksTable: BaseRocksTable + Debug + Send + Sync {
     fn delete_event(&self, row: IdRow<Self::T>) -> MetaStoreEvent;
     fn update_event(&self, old_row: IdRow<Self::T>, new_row: IdRow<Self::T>) -> MetaStoreEvent;
     fn db(&self) -> &DB;
-    fn table_ref(&self) -> &DbTableRef;
-    fn snapshot(&self) -> &Snapshot;
+    fn table_ref(&self) -> &DbTableRef<'_>;
+    fn snapshot(&self) -> &Snapshot<'_>;
     fn mem_seq(&self) -> &MemorySequence;
     fn index_id(index_num: IndexId) -> IndexId;
     fn table_id() -> TableId;
@@ -518,14 +518,14 @@ pub trait RocksTable: BaseRocksTable + Debug + Send + Sync {
         let inserted_row = self.insert_row_kv(row_id, serialized_row)?;
 
         batch_pipe.add_event(MetaStoreEvent::Insert(Self::table_id(), row_id));
-        if self.snapshot().get(&inserted_row.key)?.is_some() {
+        if self.snapshot().get_pinned(&inserted_row.key)?.is_some() {
             return Err(CubeError::internal(format!("Primary key constraint violation. Primary key already exists for a row id {}: {:?}", row_id, &row)));
         }
         batch_pipe.batch().put(inserted_row.key, inserted_row.val);
 
         let index_row = self.insert_index_row(&row, row_id)?;
         for to_insert in index_row {
-            if self.snapshot().get(&to_insert.key)?.is_some() {
+            if self.snapshot().get_pinned(&to_insert.key)?.is_some() {
                 return Err(CubeError::internal(format!("Primary key constraint violation in secondary index. Primary key already exists for a row id {}: {:?}", row_id, &row)));
             }
             batch_pipe.batch().put(to_insert.key, to_insert.val);
@@ -581,7 +581,7 @@ pub trait RocksTable: BaseRocksTable + Debug + Send + Sync {
         )?;
 
         if let Some(table_info) = table_info {
-            let table_info = self.deserialize_table_info(table_info.as_slice())?;
+            let table_info = self.deserialize_table_info(&table_info)?;
 
             if table_info.version != Self::T::version()
                 || table_info.value_version != Self::T::value_version()
@@ -640,7 +640,7 @@ pub trait RocksTable: BaseRocksTable + Debug + Send + Sync {
                 .to_bytes(),
             )?;
             if let Some(index_info) = index_info {
-                let index_info = self.deserialize_index_info(index_info.as_slice())?;
+                let index_info = self.deserialize_index_info(&index_info)?;
                 if index_info.version != index.version()
                     || index_info.value_version != index.value_version()
                 {
@@ -1102,10 +1102,15 @@ pub trait RocksTable: BaseRocksTable + Debug + Send + Sync {
 
     fn get_row(&self, row_id: u64) -> Result<Option<IdRow<Self::T>>, CubeError> {
         let ref db = self.snapshot();
-        let res = db.get(RowKey::Table(Self::table_id(), row_id).to_bytes())?;
+        // Use pinned access to avoid double copying. While zero-copy deserialization would be ideal, but
+        // we're using flex buffers with serde, which copies String values during deserialization. There is a way
+        // to solve it by using &[u8] types, but it's not worth the effort right now.
+        //
+        // Let's avoid copying on lookup row, but doing copy on deserialization.
+        let res = db.get_pinned(RowKey::Table(Self::table_id(), row_id).to_bytes())?;
 
         if let Some(buffer) = res {
-            let row = self.deserialize_id_row(row_id, buffer.as_slice())?;
+            let row = self.deserialize_id_row(row_id, &buffer)?;
             return Ok(Some(row));
         }
 

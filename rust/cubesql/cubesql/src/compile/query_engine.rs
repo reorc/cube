@@ -49,6 +49,7 @@ use datafusion::{
     sql::{parser::Statement as DFStatement, planner::SqlToRel},
     variable::VarType,
 };
+use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait QueryEngine {
@@ -100,6 +101,7 @@ pub trait QueryEngine {
         let cache_entry = self.get_cache_entry(state.clone()).await?;
 
         let planning_start = SystemTime::now();
+        let query_planning_id = Uuid::new_v4();
         if let Some(span_id) = span_id.as_ref() {
             if let Some(auth_context) = state.auth_context() {
                 self.transport_ref()
@@ -110,6 +112,7 @@ pub trait QueryEngine {
                         "SQL API Query Planning".to_string(),
                         serde_json::json!({
                             "query": span_id.query_key.clone(),
+                            "planningId": query_planning_id.to_string(),
                         }),
                     )
                     .await
@@ -140,7 +143,7 @@ pub trait QueryEngine {
 
         let optimizer_config = OptimizerConfig::new();
         let optimizers: Vec<Arc<dyn OptimizerRule + Sync + Send>> = vec![
-            Arc::new(PlanNormalize::new()),
+            Arc::new(PlanNormalize::new(&cube_ctx)),
             Arc::new(ProjectionDropOut::new()),
             Arc::new(FilterPushDown::new()),
             Arc::new(SortPushDown::new()),
@@ -173,6 +176,24 @@ pub trait QueryEngine {
                 &mut LogicalPlanToLanguageContext::default(),
             )
             .map_err(|e| CompilationError::internal(e.to_string()))?;
+
+        let rewriting_start = SystemTime::now();
+        if let Some(span_id) = span_id.as_ref() {
+            if let Some(auth_context) = state.auth_context() {
+                self.transport_ref()
+                    .log_load_state(
+                        Some(span_id.clone()),
+                        auth_context,
+                        state.get_load_request_meta("sql"),
+                        "SQL API Plan Rewrite".to_string(),
+                        serde_json::json!({
+                            "planningId": query_planning_id.to_string(),
+                        }),
+                    )
+                    .await
+                    .map_err(|e| CompilationError::internal(e.to_string()))?;
+            }
+        }
 
         let mut finalized_graph = self
             .compiler_cache_ref()
@@ -267,6 +288,24 @@ pub trait QueryEngine {
 
         let rewrite_plan = result?;
 
+        if let Some(span_id) = span_id.as_ref() {
+            if let Some(auth_context) = state.auth_context() {
+                self.transport_ref()
+                    .log_load_state(
+                        Some(span_id.clone()),
+                        auth_context,
+                        state.get_load_request_meta("sql"),
+                        "SQL API Plan Rewrite Success".to_string(),
+                        serde_json::json!({
+                            "planningId": query_planning_id.to_string(),
+                            "duration": rewriting_start.elapsed().unwrap().as_millis() as u64,
+                        }),
+                    )
+                    .await
+                    .map_err(|e| CompilationError::internal(e.to_string()))?;
+            }
+        }
+
         // DF optimizes logical plan (second time) on physical plan creation
         // It's not safety to use all optimizers from DF for OLAP queries, because it will lead to errors
         // From another side, 99% optimizers cannot optimize anything
@@ -293,6 +332,7 @@ pub trait QueryEngine {
                         "SQL API Query Planning Success".to_string(),
                         serde_json::json!({
                             "query": span_id.query_key.clone(),
+                            "planningId": query_planning_id.to_string(),
                             "duration": planning_start.elapsed().unwrap().as_millis() as u64,
                         }),
                     )
@@ -436,6 +476,7 @@ impl QueryEngine for SqlQueryEngine {
                 "PostgreSQL 14.2 on x86_64-cubesql".to_string(),
             ));
             ctx.register_udf(create_db_udf("current_database".to_string(), state.clone()));
+            ctx.register_udf(create_db_udf("current_catalog".to_string(), state.clone()));
             ctx.register_udf(create_db_udf("current_schema".to_string(), state.clone()));
             ctx.register_udf(create_current_user_udf(
                 state.clone(),
@@ -518,6 +559,10 @@ impl QueryEngine for SqlQueryEngine {
         ctx.register_udf(create_age_udf());
         ctx.register_udf(create_pg_get_partkeydef_udf());
         ctx.register_udf(create_pg_relation_size_udf());
+        ctx.register_udf(create_pg_postmaster_start_time_udf());
+        ctx.register_udf(create_txid_current_udf());
+        ctx.register_udf(create_pg_is_in_recovery_udf());
+        ctx.register_udf(create_pg_tablespace_location_udf());
 
         // udaf
         ctx.register_udaf(create_measure_udaf());

@@ -136,11 +136,14 @@ export class PrestodbQuery extends BaseQuery {
     const templates = super.sqlTemplates();
     templates.functions.DATETRUNC = 'DATE_TRUNC({{ args_concat }})';
     templates.functions.DATEPART = 'DATE_PART({{ args_concat }})';
+    templates.functions.DATEDIFF = 'DATE_DIFF(\'{{ date_part }}\', {{ args[1] }}, {{ args[2] }})';
+    templates.functions.CURRENTDATE = 'CURRENT_DATE';
+    templates.functions.TRUNC = 'TRUNCATE({{ args_concat }})';
     delete templates.functions.PERCENTILECONT;
     templates.statements.select = '{% if ctes %} WITH \n' +
           '{{ ctes | join(\',\n\') }}\n' +
           '{% endif %}' +
-      'SELECT {{ select_concat | map(attribute=\'aliased\') | join(\', \') }}  {% if from %}\n' +
+      'SELECT {% if distinct %}DISTINCT {% endif %}{{ select_concat | map(attribute=\'aliased\') | join(\', \') }}  {% if from %}\n' +
       'FROM (\n  {{ from }}\n) AS {{ from_alias }} {% elif from_prepared %}\n' +
       'FROM {{ from_prepared }}' +
       '{% endif %}' +
@@ -153,6 +156,10 @@ export class PrestodbQuery extends BaseQuery {
     templates.expressions.extract = 'EXTRACT({{ date_part }} FROM {{ expr }})';
     templates.expressions.interval_single_date_part = 'INTERVAL \'{{ num }}\' {{ date_part }}';
     templates.expressions.timestamp_literal = 'from_iso8601_timestamp(\'{{ value }}\')';
+    // Presto requires concat types to be VARCHAR
+    templates.expressions.binary = '{% if op == \'||\' %}' +
+      '(CAST({{ left }} AS VARCHAR) || CAST({{ right }} AS VARCHAR))' +
+      '{% else %}({{ left }} {{ op }} {{ right }}){% endif %}';
     delete templates.expressions.ilike;
     templates.types.string = 'VARCHAR';
     templates.types.float = 'REAL';
@@ -160,6 +167,8 @@ export class PrestodbQuery extends BaseQuery {
     delete templates.types.interval;
     templates.types.binary = 'VARBINARY';
     templates.tesseract.ilike = 'LOWER({{ expr }}) {% if negated %}NOT {% endif %} LIKE {{ pattern }}';
+    templates.tesseract.bool_param_cast = 'CAST({{ expr }} AS BOOLEAN)';
+    templates.tesseract.number_param_cast = 'CAST({{ expr }} AS DOUBLE)';
     templates.filters.like_pattern = 'CONCAT({% if start_wild %}\'%\'{% else %}\'\'{% endif %}, LOWER({{ value }}), {% if end_wild %}\'%\'{% else %}\'\'{% endif %}) ESCAPE \'\\\'';
     templates.statements.time_series_select = 'SELECT from_iso8601_timestamp(dates.f) date_from, from_iso8601_timestamp(dates.t) date_to \n' +
     'FROM (\n' +

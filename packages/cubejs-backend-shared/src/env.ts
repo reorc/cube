@@ -652,6 +652,13 @@ const variables: Record<string, (...args: any) => any> = {
   /**
    * Max number of elements
    */
+  usedPreAggregationCacheMaxCount: (): number => get('CUBEJS_USED_PRE_AGG_CACHE_MAX_COUNT')
+    .default(8192)
+    .asInt(),
+
+  /**
+   * Max number of elements
+   */
   touchPreAggregationCacheMaxCount: (): number => get('CUBEJS_TOUCH_PRE_AGG_CACHE_MAX_COUNT')
     .default(8192)
     .asInt(),
@@ -1137,6 +1144,32 @@ const variables: Record<string, (...args: any) => any> = {
     // TODO (buntarb): Deprecate and replace?
     process.env[
       keyByDataSource('CUBEJS_AWS_ATHENA_CATALOG', dataSource)
+    ]
+  ),
+
+  /**
+   * Athena AWS Assume Role ARN.
+   */
+  athenaAwsAssumeRoleArn: ({
+    dataSource
+  }: {
+    dataSource: string,
+  }) => (
+    process.env[
+      keyByDataSource('CUBEJS_AWS_ATHENA_ASSUME_ROLE_ARN', dataSource)
+    ]
+  ),
+
+  /**
+   * Athena AWS Assume Role External ID.
+   */
+  athenaAwsAssumeRoleExternalId: ({
+    dataSource
+  }: {
+    dataSource: string,
+  }) => (
+    process.env[
+      keyByDataSource('CUBEJS_AWS_ATHENA_ASSUME_ROLE_EXTERNAL_ID', dataSource)
     ]
   ),
 
@@ -2145,9 +2178,6 @@ const variables: Record<string, (...args: any) => any> = {
   // Experiments & Preview flags
   livePreview: () => get('CUBEJS_LIVE_PREVIEW')
     .default('true')
-    .asBoolStrict(),
-  preAggregationsQueueEventsBus: () => get('CUBEJS_PRE_AGGREGATIONS_QUEUE_EVENTS_BUS')
-    .default('false')
     .asBoolStrict(),
   externalDefault: () => get('CUBEJS_EXTERNAL_DEFAULT')
     .default('true')

@@ -66,30 +66,18 @@ export class YamlCompiler {
   public async compileYamlWithJinjaFile(
     file: FileContent,
     errorsReport: ErrorReporter,
-    cubes,
-    contexts,
-    exports,
-    asyncModules,
-    toCompile,
-    compiledFiles,
     compileContext,
     pythonContext: PythonCtx
   ) {
     const compiledFile = await this.renderTemplate(file, compileContext, pythonContext);
 
-    return this.compileYamlFile(
-      compiledFile,
-      errorsReport,
-      cubes,
-      contexts,
-      exports,
-      asyncModules,
-      toCompile,
-      compiledFiles
-    );
+    return this.compileYamlFile(compiledFile, errorsReport);
   }
 
-  public compileYamlFile(file: FileContent, errorsReport: ErrorReporter, cubes, contexts, exports, asyncModules, toCompile, compiledFiles) {
+  public compileYamlFile(
+    file: FileContent,
+    errorsReport: ErrorReporter,
+  ) {
     if (!file.content.trim()) {
       return;
     }
@@ -103,12 +91,12 @@ export class YamlCompiler {
       if (key === 'cubes') {
         (yamlObj.cubes || []).forEach(({ name, ...cube }) => {
           const transpiledFile = this.transpileAndPrepareJsFile(file, 'cube', { name, ...cube }, errorsReport);
-          this.dataSchemaCompiler?.compileJsFile(transpiledFile, errorsReport, cubes, contexts, exports, asyncModules, toCompile, compiledFiles);
+          this.dataSchemaCompiler?.compileJsFile(transpiledFile, errorsReport);
         });
       } else if (key === 'views') {
         (yamlObj.views || []).forEach(({ name, ...cube }) => {
           const transpiledFile = this.transpileAndPrepareJsFile(file, 'view', { name, ...cube }, errorsReport);
-          this.dataSchemaCompiler?.compileJsFile(transpiledFile, errorsReport, cubes, contexts, exports, asyncModules, toCompile, compiledFiles);
+          this.dataSchemaCompiler?.compileJsFile(transpiledFile, errorsReport);
         });
       } else {
         errorsReport.error(`Unexpected YAML key: ${key}. Only 'cubes' and 'views' are allowed here.`);
@@ -116,7 +104,7 @@ export class YamlCompiler {
     }
   }
 
-  private transpileAndPrepareJsFile(file, methodFn, cubeObj, errorsReport: ErrorReporter) {
+  private transpileAndPrepareJsFile(file: FileContent, methodFn: ('cube' | 'view'), cubeObj, errorsReport: ErrorReporter): FileContent {
     const yamlAst = this.transformYamlCubeObj(cubeObj, errorsReport);
 
     const cubeOrViewCall = t.callExpression(t.identifier(methodFn), [t.stringLiteral(cubeObj.name), yamlAst]);
@@ -135,7 +123,13 @@ export class YamlCompiler {
     cubeObj.dimensions = this.yamlArrayToObj(cubeObj.dimensions || [], 'dimension', errorsReport);
     cubeObj.segments = this.yamlArrayToObj(cubeObj.segments || [], 'segment', errorsReport);
     cubeObj.preAggregations = this.yamlArrayToObj(cubeObj.preAggregations || [], 'preAggregation', errorsReport);
-    cubeObj.joins = this.yamlArrayToObj(cubeObj.joins || [], 'join', errorsReport);
+
+    cubeObj.joins = cubeObj.joins || []; // For edge cases where joins are not defined/null
+    if (!Array.isArray(cubeObj.joins)) {
+      errorsReport.error('joins must be defined as array');
+      cubeObj.joins = [];
+    }
+
     cubeObj.hierarchies = this.yamlArrayToObj(cubeObj.hierarchies || [], 'hierarchies', errorsReport);
 
     return this.transpileYaml(cubeObj, [], cubeObj.name, errorsReport);
@@ -161,6 +155,10 @@ export class YamlCompiler {
                   ast = t.booleanLiteral(code);
                 } else if (typeof code === 'number') {
                   ast = t.numericLiteral(code);
+                } else if (code instanceof Date) {
+                  // Special case when dates are defined in YAML as strings without quotes
+                  // YAML parser treats them as Date objects, but for conversion we need them as strings
+                  ast = this.parsePythonAndTranspileToJs(`f"${this.escapeDoubleQuotes(code.toISOString())}"`, errorsReport);
                 }
               }
               if (ast === null) {

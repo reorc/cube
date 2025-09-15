@@ -776,13 +776,19 @@ const RowLevelPolicySchema = Joi.object().keys({
 }).xor('filters', 'allowAll');
 
 const RolePolicySchema = Joi.object().keys({
-  role: Joi.string().required(),
+  role: Joi.string(),
+  group: Joi.string(),
+  groups: Joi.array().items(Joi.string()),
   memberLevel: MemberLevelPolicySchema,
   rowLevel: RowLevelPolicySchema,
   conditions: Joi.array().items(Joi.object().keys({
     if: Joi.func().required(),
   })),
-});
+})
+  .nand('group', 'groups') // Cannot have both group and groups
+  .nand('role', 'group') // Cannot have both role and group
+  .nand('role', 'groups') // Cannot have both role and groups
+  .or('role', 'group', 'groups'); // Must have at least one
 
 /* *****************************
  * ATTENTION:
@@ -813,14 +819,25 @@ const baseSchema = {
   shown: Joi.boolean().strict(),
   public: Joi.boolean().strict(),
   meta: Joi.any(),
-  joins: Joi.object().pattern(identifierRegex, Joi.object().keys({
-    sql: Joi.func().required(),
-    relationship: Joi.any().valid(
-      'belongsTo', 'belongs_to', 'many_to_one', 'manyToOne',
-      'hasMany', 'has_many', 'one_to_many', 'oneToMany',
-      'hasOne', 'has_one', 'one_to_one', 'oneToOne'
-    ).required()
-  })),
+  joins: Joi.alternatives([
+    Joi.object().pattern(identifierRegex, Joi.object().keys({
+      sql: Joi.func().required(),
+      relationship: Joi.any().valid(
+        'belongsTo', 'belongs_to', 'many_to_one', 'manyToOne',
+        'hasMany', 'has_many', 'one_to_many', 'oneToMany',
+        'hasOne', 'has_one', 'one_to_one', 'oneToOne'
+      ).required()
+    })),
+    Joi.array().items(Joi.object().keys({
+      name: identifier.required(),
+      sql: Joi.func().required(),
+      relationship: Joi.any().valid(
+        'belongsTo', 'belongs_to', 'many_to_one', 'manyToOne',
+        'hasMany', 'has_many', 'one_to_many', 'oneToMany',
+        'hasOne', 'has_one', 'one_to_one', 'oneToOne'
+      ).required()
+    }))
+  ]),
   measures: MeasuresSchema,
   dimensions: DimensionsSchema,
   segments: SegmentsSchema,

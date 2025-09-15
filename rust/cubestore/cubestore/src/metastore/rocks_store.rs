@@ -1,7 +1,6 @@
 use crate::config::ConfigObj;
 use crate::metastore::table::TablePath;
 use crate::metastore::{MetaStoreEvent, MetaStoreFs};
-use crate::util::aborting_join_handle::AbortingJoinHandle;
 use crate::util::time_span::warn_long;
 
 use crate::CubeError;
@@ -700,7 +699,9 @@ macro_rules! meta_store_table_impl {
 
             async fn all_rows(&self) -> Result<Vec<IdRow<Self::T>>, CubeError> {
                 self.rocks_meta_store
-                    .read_operation_out_of_queue(move |db_ref| Ok(Self::table(db_ref).all_rows()?))
+                    .read_operation_out_of_queue("all_rows", move |db_ref| {
+                        Ok(Self::table(db_ref).all_rows()?)
+                    })
                     .await
             }
 
@@ -811,36 +812,42 @@ pub type RocksStoreRWLoopFn = Box<dyn FnOnce() -> Result<(), CubeError> + Send +
 pub struct RocksStoreRWLoop {
     name: &'static str,
     tx: tokio::sync::mpsc::Sender<RocksStoreRWLoopFn>,
-    _join_handle: Arc<AbortingJoinHandle<()>>,
 }
 
 impl RocksStoreRWLoop {
-    pub fn new(name: &'static str) -> Self {
+    pub fn new(store_name: &'static str, name: &'static str) -> Self {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<RocksStoreRWLoopFn>(32_768);
 
-        let join_handle = cube_ext::spawn_blocking(move || loop {
-            if let Some(fun) = rx.blocking_recv() {
-                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(fun)) {
-                    Err(panic_payload) => {
-                        let restore_error = CubeError::from_panic_payload(panic_payload);
-                        log::error!("Panic during read write loop execution: {}", restore_error);
-                    }
-                    Ok(res) => {
-                        if let Err(e) = res {
-                            log::error!("Error during read write loop execution: {}", e);
+        let thread_name = format!("{}-{}-rwloop", store_name, name);
+        std::thread::Builder::new()
+            .name(thread_name)
+            .spawn(move || loop {
+                if let Some(fun) = rx.blocking_recv() {
+                    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(fun)) {
+                        Err(panic_payload) => {
+                            let restore_error = CubeError::from_panic_payload(panic_payload);
+                            log::error!(
+                                "Panic during read write loop execution: {}",
+                                restore_error
+                            );
+                        }
+                        Ok(res) => {
+                            if let Err(e) = res {
+                                log::error!("Error during read write loop execution: {}", e);
+                            }
                         }
                     }
+                } else {
+                    return;
                 }
-            } else {
-                return;
-            }
-        });
+            })
+            .expect(&format!(
+                "Failed to spawn RWLoop thread for store '{}', name '{}'",
+                store_name, name
+            ));
 
-        Self {
-            name,
-            tx,
-            _join_handle: Arc::new(AbortingJoinHandle::new(join_handle)),
-        }
+        // Thread handle is intentionally dropped - thread will exit when tx is dropped
+        Self { name, tx }
     }
 
     pub async fn schedule(&self, fun: RocksStoreRWLoopFn) -> Result<(), CubeError> {
@@ -926,7 +933,7 @@ impl RocksStore {
             snapshots_upload_stopped: Arc::new(AsyncMutex::new(false)),
             config,
             cached_tables: Arc::new(Mutex::new(None)),
-            rw_loop_default_cf: RocksStoreRWLoop::new("default"),
+            rw_loop_default_cf: RocksStoreRWLoop::new("metastore", "default"),
             details,
         };
 
@@ -1413,6 +1420,7 @@ impl RocksStore {
 
     pub async fn read_operation_out_of_queue_opt<F, R>(
         &self,
+        op_name: &'static str,
         f: F,
         timeout: Duration,
     ) -> Result<R, CubeError>
@@ -1422,9 +1430,14 @@ impl RocksStore {
     {
         let mem_seq = MemorySequence::new(self.seq_store.clone());
         let db_to_send = self.db.clone();
+        let span_name = format!(
+            "{} read operation out of queue: {}",
+            self.details.get_name(),
+            op_name
+        );
 
         cube_ext::spawn_blocking(move || {
-            let db_span = warn_long("store read operation out of queue", timeout);
+            let db_span = warn_long(&span_name, timeout);
             let span = tracing::trace_span!("store read operation out of queue");
             let span_holder = span.enter();
 
@@ -1444,12 +1457,16 @@ impl RocksStore {
         .await?
     }
 
-    pub async fn read_operation_out_of_queue<F, R>(&self, f: F) -> Result<R, CubeError>
+    pub async fn read_operation_out_of_queue<F, R>(
+        &self,
+        op_name: &'static str,
+        f: F,
+    ) -> Result<R, CubeError>
     where
         F: for<'a> FnOnce(DbTableRef<'a>) -> Result<R, CubeError> + Send + Sync + 'static,
         R: Send + Sync + 'static,
     {
-        self.read_operation_out_of_queue_opt::<F, R>(f, Duration::from_millis(100))
+        self.read_operation_out_of_queue_opt::<F, R>(op_name, f, Duration::from_millis(100))
             .await
     }
 
@@ -1781,7 +1798,9 @@ mod tests {
             .await
             .unwrap();
         let all_schemas = rocks_store
-            .read_operation_out_of_queue(move |db_ref| SchemaRocksTable::new(db_ref).all_rows())
+            .read_operation_out_of_queue("test_snapshot_uplaods", move |db_ref| {
+                SchemaRocksTable::new(db_ref).all_rows()
+            })
             .await
             .unwrap();
         let expected = vec![
